@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Angebot</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  /* Das Angebot auf Papier — maßgleich mit `Kalkulation_3.pdf`, dem Ausdruck
+     des abgelösten Makros.
+     ========================================================================
+     WOHER DIE ZAHLEN STAMMEN
+     Nicht geschätzt, sondern aus dem Inhaltsstrom der Vorlage gelesen: jede
+     Fläche, jede Textmarke und jede Schriftgröße. Der Seitenrahmen ist
+     841,68 × 595,2 pt (A4 quer), der Satzspiegel beginnt bei x = 38,784 pt und
+     ist 763,3 pt breit. Alle Maße unten stehen in pt und sind die der Vorlage.
+
+     WARUM DIE PDF NICHT SELBST BENUTZT WIRD
+     Sie ist ein fertiger Ausdruck, keine Vorlage: die Beispieldaten
+     („Beschreibung …", DN10, 3.975,00 €) sind als Text hineingezeichnet, es
+     gibt darunter keine leere Formularebene, die man füllen könnte. Und ihre
+     Schriften sind Teilmengen (`BCDEEE+Calibri`) — darin stecken nur die
+     Zeichen, die in genau diesem Dokument vorkommen. Ein Kundenname mit einem
+     Buchstaben, den das Beispiel nicht enthält, ließe sich damit nicht setzen.
+     Übernommen ist deshalb ihre Geometrie, nicht ihre Datei.
+
+     FARBEN (aus dem Strom gelesen, deckungsgleich mit mod_Config)
+       #003A73  Kopflinie, Spaltenkopf, L1, Gesamtsumme      C_BRAND_DARK
+       #809CB9  L2                        LightenColor(dark, 0.5)
+       #CCD8E3  L3                        LightenColor(dark, 0.8)
+       #F8FAFD  Zebrastreifen             LightenColor(C_BRAND_PALE, 0.5)
+
+     SCHRIFTGRÖSSEN
+       9,96 pt  alles — auch Titel und Absender
+      12,00 pt  L1
+      11,04 pt  L2, Fußzeile
+      12,96 pt  Gesamtsumme
+
+     Dass Titel und Absender nicht größer sind als der Tabellensatz, ist kein
+     Versehen beim Nachbau, sondern steht so in der Vorlage. `mod_SheetBuilder`
+     setzte 16 pt für den Titel und 13 pt für „AAR GMBH", der Export überschrieb
+     aber zuerst den ganzen Bereich mit `.Font.Size = 10` und setzte die 16
+     danach auf `Cells(2, 3)` — eine Zelle mitten im Verbund B2:C4, deren Werte
+     nirgends erscheinen. Dieselbe Stelle verhinderte auch, dass „/ KALKULATION"
+     aus dem Titel geschnitten wurde. Beides ist unten als Konstante änderbar.
+
+     SCHRIFT
+     Calibri, wie in der Vorlage eingebettet. Fehlt sie, springt Carlito ein —
+     dieselben Metriken, freie Lizenz. Ohne eine der beiden verschieben sich
+     die Umbrüche, weil die Spaltenbreiten auf Calibri-Breiten beruhen. */
+
+  /* `margin:0` — die Ränder trägt das Blatt selbst (`.blatt`). Nur so kann
+     jede Seite ihre eigene Fußzeile absolut setzen und der Umbruch hier
+     gerechnet werden statt vom Satz geraten. Vorher gab @page die Ränder vor,
+     und der laufende Fuß musste `position:fixed` sein, um sich zu
+     wiederholen — dann aber schnitt Chromium ihn am Satzspiegel ab. */
+  @page { size: A4 landscape; margin: 0 }
+
+  /* Die Hülle ist dieselbe wie im Katalog- und im Einstellungsfenster: dunkler
+     Grund aus app.css, der Inhalt scrollt, die Bedienelemente stehen unten in
+     einer Fußleiste — Meldung links, Schaltflächen rechts, die wichtigste
+     zuletzt. Das Blatt bringt sein eigenes Weiß und seine eigene Schrift mit;
+     alles andere gehört dem Programm.
+
+     Vorher saß hier eine Werkzeugleiste oben und der ganze Grund war grau —
+     so machen es Druckvorschauen anderswo, aber dieses Fenster steht neben
+     drei Geschwistern, die es anders halten. */
+  body { display:flex; flex-direction:column; padding:14px; gap:10px; overflow:hidden }
+
+  footer { flex:none; display:flex; align-items:center; gap:8px;
+           padding-top:11px; border-top:1px solid var(--line) }
+  footer .spacer { flex:1 }
+  footer .stufe { color:var(--muted) }
+  footer .stufe b { color:var(--ink) }
+  footer .hinweis { color:var(--warn) }
+  /* Erscheint erst, wenn das Hauptfenster meldet, dass sich etwas geändert
+     hat. Nicht von selbst nachzeichnen: eine Vorschau, die sich unter dem
+     Blick umbaut, während man auf „Drucken" zielt, ist schlimmer als eine,
+     die sagt, dass sie nicht mehr stimmt. */
+  #aktualisieren { border-color:var(--warn); color:var(--warn) }
+  #aktualisieren:hover { background:color-mix(in srgb, var(--warn) 16%, transparent);
+                         border-color:var(--warn); color:var(--warn) }
+  .leiste .veraltet { color:var(--warn) }
+
+  /* Die Bühne trägt einen „Bogen", in dem die Blätter stehen. Der Bogen wird
+     verkleinert, wenn das Fenster schmaler ist als ein Blatt — siehe
+     `einpassen()`. Ohne das schnitte ein schmales Fenster die Seiten an
+     beiden Rändern ab (`align-items:center` lässt nicht zum linken Rand
+     zurückscrollen), und man sähe eben kein A4 quer mehr.
+
+     `transform` und nicht `zoom`: eine Transformation verändert den Satz
+     nicht, also bleiben alle gemessenen Zeilenhöhen unberührt. Der Umbruch
+     rechnet weiter in echten Punkten. */
+  /* Waagerecht wird nie abgeschnitten — `einpassen()` verkleinert notfalls —,
+     also braucht es dort auch keine Bildlaufleiste. Ohne `overflow-x:hidden`
+     erschiene eine: der Bogen behält im Satz seine volle Blattbreite, auch
+     wenn er verkleinert dargestellt wird. */
+  .buehne { flex:1; overflow-x:hidden; overflow-y:auto; border-radius:var(--r) }
+  /* So breit wie ein Blatt — nicht wie die Bühne. Als Blockelement nähme der
+     Bogen sonst die Breite der Bühne an, und `einpassen()` vergliche zwei
+     gleiche Zahlen und verkleinerte nie. */
+  #bogen { width:841.68pt; display:flex; flex-direction:column;
+           transform-origin:top left }
+  /* Das Blatt am Bildschirm: volle A4-Breite quer, Polsterung gleich den
+     Rändern aus @page. Nur so bricht die Vorschau dort um, wo das Papier
+     umbricht. */
+  /* Ein Blatt ist genau eine Seite: 841,68 × 595,2 pt, die Ränder als
+     Polster. Feste Höhe und nicht `min-height` — sonst wüchse die letzte
+     Seite mit dem Inhalt und der Umbruch stimmte nicht mehr. */
+  .blatt { position:relative; box-sizing:border-box;
+           width:841.68pt; height:595.2pt;
+           background:#fff; color:#000;
+           font-family:Calibri,Carlito,"Segoe UI",system-ui,sans-serif;
+           padding:45.1pt 30.6pt 43.2pt 29.78pt;
+           box-shadow:0 6px 28px rgba(0,0,0,.35) }
+  .blatt + .blatt { margin-top:14px }
+  /* Der eigentliche Satzspiegel: 763,3 pt breit, beginnend bei 38,784 pt. */
+  .satz { padding:0 9pt }
+
+  /* =====================================================================
+     KOPF — Höhe bis zur Linie: 52,36 pt
+     Logo 48 × 47 pt, Oberkante bündig mit dem Satzspiegel, 3,72 pt eingerückt.
+     Die vier Textmarken sitzen auf ihren Grundlinien aus der Vorlage.
+     ===================================================================== */
+  /* `line-height:1` an den Kopfzeilen: mit dem üblichen `normal` legt der
+     Satz über und unter jede Zeile einen halben Durchschuss, und die
+     Unterlängen der letzten Zeile („mail@aar-gmbh.de") liefen damit in die
+     Trennlinie darunter. Bei einzeln gesetzten Zeilen bringt der Durchschuss
+     ohnehin nichts — er soll Zeilen voneinander abrücken, und hier steht jede
+     an ihrer eigenen Grundlinie. */
+  .kopf { position:relative; height:52.36pt; font-size:9.96pt; color:#003A73; line-height:1 }
+  .kopf img { position:absolute; left:3.72pt; top:0; width:48pt; height:47pt;
+              object-fit:contain }
+  /* `pre` statt der üblichen Faltung: die Vorlage trennt mit zwei Leerzeichen
+     um den Strich („Ehlegrund 15  |  D-39114 Magdeburg"), und HTML zöge die
+     zu einem zusammen. Umbrechen sollen diese Zeilen ohnehin nicht. */
+  .kopf .titel, .kopf .firma, .kopf .adr1, .kopf .adr2 { white-space:pre }
+  /* Der Titel beginnt an der Textmarke der Vorlage — solange kein Logo davor
+     steht. Steht eines da, rückt er hinter dessen Kasten (3,72 + 48 pt) plus
+     2 pt Luft.
+
+     Die Vorlage löste das anders: `mod_SheetBuilder` schrieb den Titel als
+     `"    " & Lbl("DOC_TITLE")` — mit vier führenden Leerzeichen, die ihn
+     hinter das Logo schoben. Das trägt genau so weit, wie das eine Logo breit
+     ist; ein anderes, das seinen Kasten ausfüllt, läge wieder unter dem „A".
+     Seit das Logo eine Einstellung ist, hängt der Abstand am Kasten und nicht
+     an vier Leerzeichen. */
+  .kopf .titel { position:absolute; left:40.32pt; top:21.1pt; font-weight:700 }
+  .kopf.mitLogo .titel { left:53.72pt }
+  /* Versal wie in der Vorlage: dort stand „AAR GMBH" als Zellwert in
+     Großbuchstaben. Hier macht das die Darstellung, damit die Einstellung
+     den Firmennamen so tragen kann, wie er geschrieben wird. */
+  .kopf .firma { position:absolute; right:0; top:14.4pt; font-weight:700;
+                 text-transform:uppercase }
+  /* Die Anschriftzeilen stehen einen Ton heller als der Firmenname: nicht
+     `C_BRAND_DARK`, sondern `C_BRAND_MID` — im Makro als „Mid accent —
+     borders, rules, sub-labels" beschrieben, also genau für Nebenangaben
+     gedacht. Auf Weiß trägt es 5,2:1 und bleibt damit gut lesbar.
+
+     In der ausgegebenen Vorlage sind alle vier Kopfzeilen dasselbe
+     #003A73 — nachgemessen im Inhaltsstrom und am Pixel. Dass die Anschrift
+     dort heller wirkt, macht allein der Schnitt: der Firmenname steht fett,
+     die Anschrift mager. `mod_SheetBuilder` hatte die Anschrift ursprünglich
+     auf `C_BRAND_TINT` gesetzt und der Export sie mit einem pauschalen
+     `.Font.Color = darkBlue` über die Zeilen 2 bis 4 wieder eingeebnet. */
+  .kopf .adr1, .kopf .adr2 { color:#3D6CB7 }
+  .kopf .adr1  { position:absolute; right:0; top:28.4pt }
+  .kopf .adr2  { position:absolute; right:0; top:41.5pt }
+
+  /* Die kräftige Linie unter dem Kopf: 2,88 pt, volle Satzbreite. */
+  .kopflinie { height:2.88pt; background:#003A73 }
+
+  /* =====================================================================
+     ANGABEN — von der Linie bis zur Tabelle: 88,81 pt
+     Links Kunde und Projekt, rechts Angebots-Nr., Datum, Bearbeiter. Die
+     Beschriftungen stehen auch ohne Wert da: das Blatt ist ein Formular.
+     ===================================================================== */
+  /* ---- Angaben ----
+     Zwei Raster statt einzeln gesetzter Kästen. Vorher saß jede Beschriftung
+     an einer festen Kante und jeder Wert an der rechten — ein langer Name
+     („L. Carvalho da Silva") lief dann unter die Beschriftung und beide
+     standen übereinander. Im Raster schiebt der Wert die Beschriftung nach
+     links, statt sie zu überdecken.
+
+     Zeilenhöhe 14,06 pt und 8,27 pt Abstand nach oben: damit liegen die
+     Mitten der drei Zeilen auf 15,3 / 29,4 / 43,4 pt — den Grundlinien der
+     Vorlage. */
+  .angaben { position:relative; height:88.81pt; font-size:9.96pt; color:#000 }
+  .angaben .links, .angaben .rechts {
+    position:absolute; top:8.27pt; display:grid; grid-template-columns:auto auto;
+    column-gap:10pt; align-items:center }
+  .angaben .links { left:1.82pt; justify-items:start }
+  .angaben .rechts { right:0; justify-items:end; text-align:right }
+  /* Feste Mindestbreiten statt eines Abstands: so stehen Beschriftung und
+     Wert an denselben Kanten wie in der Vorlage — links beginnt der Wert bei
+     78,9 pt (der Kante der Kategoriespalte), rechts ist die Wertspalte 89,2 pt
+     breit (die Breite von „Gesamt VK"). Ein längerer Wert schiebt die
+     Beschriftung nach links, statt sie zu überdecken; das war der Zweck des
+     Rasters. */
+  /* Mindestbreite PLUS Spalt, zusammen die Maße der Vorlage: links beginnt der
+     Wert bei 78,9 pt (1,82 + 28,5 + 10), rechts endet die Beschriftung bei
+     712,9 pt (802,08 − 79,2 − 10). Der Spalt muss eigens dastehen — bei einem
+     Wert, der länger ist als seine Mindestbreite, trüge sie ihn nicht mehr,
+     und Beschriftung und Wert stießen aneinander („BearbeiterL. Carvalho"). */
+  .angaben .links > .l { min-width:28.5pt }
+  /* `justify-content` und nicht `text-align`: die Zellen sind Flex-Kästen
+     (damit sie ihre Mindesthöhe von 14,06 pt behalten), und ein Flex-Kind
+     hört nicht auf `text-align`. Ohne das klebte der Wert am linken Rand
+     seiner 89,2 pt und las sich als „Datum31.07.2026". */
+  .angaben .rechts > .v { min-width:79.2pt; justify-content:flex-end }
+  .angaben .links > *, .angaben .rechts > * { min-height:14.06pt; display:flex; align-items:center }
+  .angaben .l { font-weight:700 }
+  .angaben .rechts .v { font-weight:700 }
+  /* Die Werte links (Kunde, Projekt) dürfen lang sein und umbrechen; die
+     Zeile wächst dann nach unten, der Block hat Luft dafür. */
+  .angaben .links .v { max-width:330pt }
+
+  /* =====================================================================
+     TABELLE
+     Zeilenhöhe 20,16 pt, Grundschrift 9,96 pt, Innenabstand 1,82 pt.
+     `display:table-header-group` wiederholt den Spaltenkopf auf jeder Seite —
+     das, was im Makro `PrintTitleRows = "$12:$12"` erledigte.
+     ===================================================================== */
+  /* `separate` statt `collapse`: nur im getrennten Rahmenmodell malt der
+     Browser den Grund einer ZEILE als eine durchgehende Fläche. Beim
+     zusammengelegten Modell malt er ihn je Zelle, und weil die Spaltenbreiten
+     der Vorlage krumm sind (38,3 pt, 122,9 pt …), blieb zwischen je zwei
+     Zellen eine Fuge von einem Bruchteil eines Pixels stehen — ein feines
+     weißes Gitter quer durch die farbigen Bänder, das die Vorlage nicht hat.
+     `border-spacing:0`, damit die Zellen trotzdem aneinanderstoßen. */
+  table { width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0;
+          font-size:9.96pt; color:#000;
+          /* eigener Stapelkontext, damit die Bandflächen unten (z-index:-1)
+             hinter den Zellen, aber vor dem Blatt liegen */
+          position:relative; z-index:0 }
+  thead { display:table-header-group }
+  thead th { color:#fff; font-weight:700; text-align:left }
+
+  /* Zwischen zwei Spalten steht ein fester Spalt von 6 pt — 3 pt Polster an
+     jeder Zelle. Vorher waren es 1,82 pt wie in der Vorlage, und dort stieß
+     ein langer Produktname unmittelbar an die DN-Angabe daneben.
+
+     `height` wirkt an einer Tabellenzelle als Mindesthöhe: eine Zeile, die
+     umbricht, wird höher, statt beschnitten zu werden. */
+  th, td { height:20.16pt; padding:2pt 3pt; vertical-align:middle }
+
+  /* Was umbrechen darf: die drei Textspalten. `break-word` fängt auch den
+     Fall ab, dass ein einzelnes Wort breiter ist als die Spalte — ohne das
+     liefe es weiter in die Nachbarspalte hinein.
+
+     Was nicht umbricht: Positionsnummer, Menge, Einheit und die Beträge. Eine
+     über zwei Zeilen gebrochene Zahl liest sich als zwei Zahlen. Ihre Spalten
+     sind dafür breit genug bemessen. */
+  td.kat, td.leistung, td.dn, th { overflow-wrap:break-word; hyphens:auto }
+  td.nummer, td.menge, td.einheit, td.ep, td.vk { white-space:nowrap }
+
+  /* Ausrichtung: Pos., Kategorie, Leistung und DN linksbündig — sie sind Text
+     und beginnen am selben Rand. Menge, Einheit und Gesamt EP mittig: sie
+     stehen in schmalen Spalten, und mittig sitzen sie erkennbar unter ihrer
+     Beschriftung, statt an einer Kante zu kleben. Die Ergebnisspalte als
+     einzige rechts — sie trägt das, worauf man schaut, und dort fluchten die
+     Beträge untereinander und lassen sich überschlagen.
+
+     Gleich breite Ziffern bekommen alle Zahlenspalten, sonst tanzen die
+     Stellen von Zeile zu Zeile. */
+  td.menge, td.einheit, td.ep, td.vk { font-variant-numeric:tabular-nums }
+  td.menge, th.menge, td.einheit, th.einheit, td.ep, th.ep { text-align:center }
+  td.vk, th.vk { text-align:right }
+
+  /* ---- Die farbigen Bänder als EINE Fläche ----
+     Excel malt je Band ein einziges Rechteck über die volle Satzbreite
+     (`38.784 365.83 763.3 40.224 re` im Strom der Vorlage). Ein HTML-Tabelle
+     malt dagegen je Zelle eines, und wo zwei Flächen aneinanderstoßen, lässt
+     die Kantenglättung eine weiße Haarlinie stehen — im Ausdruck ein feines
+     Gitter quer durch die Bänder, das die Vorlage nicht hat. Weder ein Grund
+     an der Zeile noch `border-collapse:separate` ändert daran etwas.
+
+     Deshalb trägt die erste Zelle jeder Bandzeile ein einziges Rechteck über
+     763,3 pt — genau das, was Excel zeichnet. Sie darf dafür als einzige nicht
+     beschneiden; ihr Inhalt (die Positionsnummer) ist kurz genug. */
+  tr.band > :first-child { overflow:visible; position:relative }
+  tr.band > :first-child::before {
+    content:""; position:absolute; left:0; top:0; bottom:0; width:763.3pt;
+    z-index:-1; background:var(--band) }
+  thead tr { --band:#003A73 }
+  tr.b1 { --band:#003A73 } tr.b2 { --band:#809CB9 } tr.b3 { --band:#CCD8E3 }
+  tr.zeile.gerade { --band:#F8FAFD }
+  tr.gesamt { --band:#003A73 }
+
+  /* Die Gliederungsebenen: fett kursiv, in den drei Stufen der Vorlage.
+     Die Fläche liegt an der ZEILE, nicht an den Zellen — siehe die
+     Anmerkung zu `border-collapse` oben. */
+  tr.b1 td { color:#fff; font-weight:700; font-size:12pt }
+  tr.b2 td { color:#fff; font-weight:700; font-size:11.04pt }
+  tr.b3 td { color:#003A73; font-weight:700 }
+  tr.block td.kat { font-style:italic }
+  /* Zebra auf jeder zweiten Materialzeile. Trennlinien gibt es keine — die
+     Vorlage hat keine (`.Borders.LineStyle = xlNone`), der Streifen trennt. */
+  /* Die Kategorie benennt die Herkunft, nicht die Leistung; sie steht kursiv.
+     Eine Freitextzeile ist ganz kursiv. */
+  tr.zeile td.kat { font-style:italic }
+  tr.frei td.leistung { font-style:italic }
+
+  /* Eingerückt wird allein die Kategoriespalte, in Schritten von 7,5 pt —
+     `Cells(i, 2).IndentLevel = 1/2/3` im Makro. Die Positionsnummer bleibt am
+     linken Rand: sie trägt die Ebene schon in sich. */
+  td.ein1 { padding-left:3pt } td.ein2 { padding-left:10.5pt }
+  td.ein3 { padding-left:18pt } td.ein4 { padding-left:25.5pt }
+
+  /* Gesamtsumme: dieselbe volle Farbe wie der Spaltenkopf — die beiden Enden
+     der Tabelle gehören zusammen. */
+  tr.gesamt td { color:#fff; font-weight:700; font-size:12.96pt }
+  /* Die Beschriftung steht rechtsbündig am Betrag, mit 8 pt Luft davor.
+     Sie hat dafür zwei Spalten — siehe `summenZeile`. */
+  tr.gesamt td.lbl, tr.uebertrag td.lbl { text-align:right; padding-right:8pt }
+
+  /* ---- Seitenumbruch ---- */
+  tr { break-inside:avoid }
+  tr.block { break-after:avoid }
+  thead { break-after:avoid }
+  tr.gesamt { break-before:avoid }
+
+  /* ---- Laufender Fuß ----
+     Grundlinie 26,4 pt über der Blattkante, wie in der Vorlage. Er sitzt im
+     unteren Rand, NICHT im Satzspiegel: der endet 43,2 pt über der Kante, es
+     bleiben also 16,8 pt Luft dazwischen. Der Text ragt beidseits 9 pt über
+     den Satzspiegel hinaus, weil Excels Fußzeile einen eigenen Rand hat.
+
+     Jede Seite trägt ihren eigenen Fuß — absolut im Blatt, nicht `fixed` an
+     der Seite. Nur so steht die richtige Seitenzahl darin. */
+  .laufend { position:absolute; left:29.78pt; right:30.6pt; bottom:23.64pt;
+             display:flex; font-size:11.04pt; color:#000; line-height:1 }
+  .laufend .spacer { flex:1 }
+  .laufend span { white-space:pre }
+
+  /* ---- Übertrag ----
+     Am Fuß jeder Seite außer der letzten, und noch einmal am Kopf jeder
+     Folgeseite. Ruhiger als die Gesamtsumme — er ist ein Zwischenstand, kein
+     Ergebnis. */
+  tr.uebertrag { --band:#CCD8E3 }
+  tr.uebertrag td { color:#003A73; font-weight:700; font-style:italic }
+
+  /* ---- Aufnahmegestalt ----
+     Die Gestalt, in der das Angebot aufgenommen wird — und, auf den
+     Rückfallplattformen, gedruckt.
+
+     Warum eine Klasse und kein `@media print`: unter macOS nimmt Rust die
+     Blätter mit `createPDF` auf, und das ist kein Druck — eine Druckregel
+     griffe dort nicht. Damit es von dieser Gestalt trotzdem nur eine Fassung
+     gibt, hängen beide Wege an derselben Klasse; für den Rückfallweg setzt
+     sie `beforeprint`.
+
+     Dass die Bühne hier aufhört zu scrollen, ist nicht Kosmetik, sondern
+     Bedingung: `createPDF` nimmt einen Ausschnitt der Seite auf, und was ein
+     Container abschneidet, fehlt auch in der Aufnahme. Die Blätter unterhalb
+     des sichtbaren Bereichs kämen leer heraus. */
+
+  /* Der Bildschirm zeigt die Hülle dunkel, das Papier ist weiß. Ohne das
+     `color-scheme` hier schlug der dunkle Grund der App auf die Seite durch
+     — die Ecke des Ausdrucks kam fast schwarz heraus. Das Wurzelelement muss
+     mit: der Grund einer Seite kommt von dort, wenn einer gesetzt ist. */
+  .aufnahme { color-scheme:light; background:#fff }
+  .aufnahme body { background:#fff; display:block; height:auto;
+                   padding:0; overflow:visible }
+  .aufnahme footer { display:none }
+  .aufnahme .buehne { display:block; overflow:visible; border-radius:0 }
+  /* Aufgenommen wird nichts verkleinert: das Blatt IST A4 quer.
+     `!important` ist hier nötig und kein Faulheitszeichen: `einpassen()`
+     schreibt die Verkleinerung als Inline-Stil ans Element, und der schlägt
+     jede Regel aus dem Stylesheet. Ohne das ginge die verkleinerte Vorschau
+     in die Aufnahme — Seiten auf 70 %, der laufende Fuß außerhalb des
+     Blatts. */
+  .aufnahme #bogen { display:block; width:auto;
+                     transform:none !important; margin-bottom:0 !important }
+  /* Jedes Blatt ist eine Seite. Schatten und Zwischenraum sind
+     Bildschirmbeiwerk; die Maße stehen schon oben an `.blatt` und bleiben,
+     wie sie sind: 841,68 × 595,2 pt.
+
+     `break-inside` gilt nur noch dem Rückfallweg. Unter macOS bricht
+     niemand mehr um — je Blatt eine Aufnahme, je Aufnahme eine Seite —, und
+     damit sind die beiden Irrwege von früher endgültig zu:
+
+     `break-after:page` ergab leere Seiten dazwischen: aus vier Blättern
+     wurden sieben, 4 + 3. Der erzwungene Umbruch kam zu dem hinzu, den der
+     Satz am Blattende ohnehin schon setzte.
+
+     `break-inside:avoid` allein ergab wandernde Seiten. WebKit hält ein
+     Blatt damit nicht am Seitenanfang fest; die Blätter flossen durch, und
+     weil der Satzspiegel einen Punkt höher war als das Blatt, rutschte jedes
+     Blatt einen Punkt weiter nach oben. Ab dem dritten ragte der Kopf über
+     den Fuß der vorigen Seite. */
+  .aufnahme .blatt { box-shadow:none; margin:0; break-inside:avoid }
+  .aufnahme .blatt + .blatt { margin-top:0 }
+  /* Ohne das gäbe der Browser die Flächen weiß aus und die Gliederung wäre
+     nicht mehr zu sehen. */
+  .aufnahme * { -webkit-print-color-adjust:exact; print-color-adjust:exact }
+</style>
+</head>
+<body>
+
+<div class="buehne" id="buehne"><div id="bogen"></div></div>
+
+<footer>
+  <span class="stufe">Stufe <b id="stufe"></b> — <span id="stufeText"></span></span>
+  <span class="hinweis" id="schriftWarnung" hidden>Calibri fehlt — die Umbrüche können abweichen.</span>
+  <span id="status"></span>
+  <span class="spacer"></span>
+  <button id="aktualisieren" hidden>Aktualisieren</button>
+  <button id="schliessen">Schließen</button>
+  <button class="primary" id="drucken">Drucken …</button>
+</footer>
+
+<script type="module">
+import { invoke, listen } from "./vendor/tauri-api.js";
+
+const $ = s => document.querySelector(s);
+const el = (t, k) => { const e = document.createElement(t); if (k) e.className = k; return e; };
+const EURO = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
+const MENGE = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 2 });
+
+const STUFEN = {
+  1: "nur die Hauptpositionen sind ausgepreist",
+  2: "jede Position ist ausgepreist, die Einzelzeilen nicht",
+  3: "auch jede Einzelzeile ist ausgepreist",
+};
+
+// So steht der Titel auf der Vorlage. Das Makro wollte für Kundendokumente
+// alles nach dem Schrägstrich wegschneiden („KALKULATION" ist interne
+// Sprache), schrieb dafür aber in `Cells(2, 3)` — eine Zelle mitten im
+// Verbund B2:C4, deren Wert nirgends erscheint. Der Schnitt hat nie
+// stattgefunden. Wer nur „ANGEBOT" drucken will, kürzt hier.
+const TITEL = "ANGEBOT / KALKULATION";
+
+// Die Spaltenbreiten in pt. Ihre Summe ist der Satzspiegel der Vorlage:
+// 46 + 122,9 + 244,8 + 83,4 + 44 + 44 + 89 + 89,2 = 763,3.
+//
+// Die Vorlage teilte ihn anders auf (38,3 / 122,9 / 263,9 / 83,4 / 38,3 /
+// 38,3 / 89 / 89,2). Der feste Spalt von 6 pt geht jeder Spalte von der
+// nutzbaren Breite ab, und bei 38,3 pt blieben für „1.1.1.01" und für eine
+// vierstellige Menge zu wenig übrig — sie wären umgebrochen oder angestoßen.
+// Die fehlenden Punkte kommen aus der Leistungsspalte, der breitesten; sie
+// darf als einzige umbrechen und verträgt es.
+const SPALTEN_VOLL = [
+  { t: "Pos.",               w: 46.0,  k: "nummer" },
+  { t: "Kategorie",          w: 122.9, k: "kat" },
+  { t: "Material / Produkt", w: 244.8, k: "leistung" },
+  { t: "DN",                 w: 83.4,  k: "dn" },
+  { t: "Menge",              w: 44.0,  k: "menge" },
+  { t: "Einheit",            w: 44.0,  k: "einheit" },
+  { t: "Gesamt EP",          w: 89.0,  k: "ep" },
+  { t: "Gesamt VK",          w: 89.2,  k: "vk" },
+];
+
+// ===========================================================================
+// BAUSTEINE
+// ===========================================================================
+
+/** JJJJ-MM-TT → TT.MM.JJJJ. */
+function datum(iso) {
+  const [y, m, t] = String(iso).split("-");
+  return y && m && t ? `${t}.${m}.${y}` : iso;
+}
+
+/** Die Zeilen der Kopfangabe, leere weggelassen. */
+function absenderZeilen(d) {
+  return String(d.absender || "").split("\n").map(z => z.trim()).filter(Boolean);
+}
+
+/**
+ * „Gesamt EP" gibt es nur auf Stufe 3 — darunter tragen die Einzelzeilen
+ * ohnehin keinen Preis, und das Makro blendete die Spalte für Stufe 1 und 2
+ * ebenso aus (`HideInternalColumns2`). Ihre Breite geht an die
+ * Leistungsbeschreibung, damit der Satzspiegel voll bleibt.
+ */
+function spaltenFuer(stufe) {
+  if (stufe === 3) return SPALTEN_VOLL;
+  return SPALTEN_VOLL.filter(s => s.k !== "ep")
+    .map(s => s.k === "leistung" ? { ...s, w: s.w + 89.0 } : s);
+}
+
+/**
+ * Der Angabenblock: links Kunde und Projekt, rechts Angebots-Nr., Datum,
+ * Bearbeiter. Die Beschriftungen stehen auch ohne Wert da — das Blatt ist ein
+ * Formular, und eine weggelassene Zeile sähe aus, als wäre die Angabe gar
+ * nicht vorgesehen.
+ */
+function angabenBauen(d) {
+  const box = el("div", "angaben");
+  const links = el("div", "links");
+  const rechts = el("div", "rechts");
+  const paar = (wohin, beschriftung, wert) => {
+    const l = el("div", "l"); l.textContent = beschriftung;
+    const v = el("div", "v"); v.textContent = wert || "";
+    wohin.append(l, v);
+  };
+  paar(links, "Kunde", d.kopf.kunde);
+  // Links bleibt die mittlere Zeile frei — so steht es auf der Vorlage.
+  links.append(el("div"), el("div"));
+  paar(links, "Projekt", d.kopf.projekt);
+  paar(rechts, "Angebots-Nr.", d.kopf.angebotsNr);
+  paar(rechts, "Datum", d.kopf.datum ? datum(d.kopf.datum) : "");
+  paar(rechts, "Bearbeiter", d.kopf.bearbeiter);
+  box.append(links, rechts);
+  return box;
+}
+
+/**
+ * Baut aus der Abschrift die Tabellenzeilen — einmal, als DOM-Knoten. Sie
+ * werden gemessen und danach auf die Seiten verteilt; gebaut werden sie nur
+ * dieses eine Mal.
+ */
+function zeilenBauen(d, spalten) {
+  let streifen = 0;
+  return d.zeilen.map(z => {
+    const istBlock = z.art === "block";
+    const frei = z.art === "frei";
+    if (!istBlock) streifen++;
+    const gestreift = !istBlock && streifen % 2 === 0;
+
+    const tr = el("tr", istBlock
+      ? `band block b${Math.min(z.tiefe, 3)}`
+      : `zeile${frei ? " frei" : ""}${gestreift ? " band gerade" : ""}`);
+
+    const werte = {
+      nummer: z.nummer,
+      kat: istBlock ? (z.titel || "Beschreibung …") : z.kategorie,
+      leistung: istBlock ? "" : z.produkt,
+      dn: istBlock ? "" : z.groesse,
+      menge: istBlock || !z.menge ? "" : MENGE.format(z.menge),
+      einheit: istBlock ? "" : (z.einheit || ""),
+      ep: istBlock || z.epGesamt === null ? "" : EURO.format(z.epGesamt),
+      vk: z.gesamt === null || z.gesamt === undefined ? "" : EURO.format(z.gesamt),
+    };
+
+    if (istBlock) {
+      // Der Titel einer Position bekommt alle Spalten bis zur Summe. In der
+      // Vorlage stand er in der Kategoriespalte und lief einfach in die leeren
+      // Nachbarn hinein — das ging, solange nichts umbrach.
+      const pos = el("td", "nummer"); pos.textContent = werte.nummer;
+      const titel = el("td", `kat ein${Math.min(z.tiefe, 4)}`);
+      titel.colSpan = spalten.length - 2;
+      titel.textContent = werte.kat;
+      const vk = el("td", "vk"); vk.textContent = werte.vk;
+      tr.append(pos, titel, vk);
+    } else {
+      for (const sp of spalten) {
+        const td = el("td", [sp.k, sp.k === "kat" ? "ein4" : ""].filter(Boolean).join(" "));
+        td.textContent = werte[sp.k];
+        tr.append(td);
+      }
+    }
+    return { tr, istBlock, beitrag: z.beitrag || 0 };
+  });
+}
+
+/**
+ * Ohne Calibri (oder das metrikgleiche Carlito) verschieben sich die Umbrüche,
+ * weil die Spaltenbreiten der Vorlage auf Calibri-Breiten beruhen. Das ist
+ * kein Fehler, aber man soll es wissen, bevor man 40 Angebote druckt.
+ */
+function schriftPruefen() {
+  try {
+    if (document.fonts && !document.fonts.check("9.96pt Calibri")
+        && !document.fonts.check("9.96pt Carlito")) {
+      $("#schriftWarnung").hidden = false;
+    }
+  } catch { /* ältere Webviews kennen document.fonts.check nicht */ }
+}
+
+// ===========================================================================
+// SEITENUMBRUCH
+// ===========================================================================
+// Der Umbruch wird hier gerechnet und nicht dem Satz überlassen. Das kostet
+// zwei Durchgänge — einmal messen, einmal bauen —, bringt aber drei Dinge, die
+// anders nicht zu haben sind:
+//
+//   * Die Vorschau zeigt die Seiten, die auch gedruckt werden. Vorher war sie
+//     ein durchgehendes Blatt und der Umbruch eine Überraschung des Druckers.
+//   * Jede Seite trägt ihren Übertrag: unten den Stand, oben denselben Betrag
+//     als Anschluss. Dafür muss man wissen, was auf die Seite passt.
+//   * Die Seitenzahl. Wer selbst umbricht, weiß, wie viele Seiten es sind —
+//     der CSS-Seitenzähler wirkt in der Druckausgabe des Webviews nicht.
+//
+// Gemessen wird am echten Satz: die Zeilen werden einmal in ein Blatt gehängt
+// und ihre Höhen abgelesen. Eine gerechnete Höhe ginge fehl, sobald eine
+// Leistungsbeschreibung umbricht.
+
+const PT = 4 / 3;                       // 1 pt in CSS-Pixeln
+const SEITE_PT = 595.2;                 // A4 quer, Höhe
+const RAND_OBEN_PT = 45.1;
+const RAND_UNTEN_PT = 43.2;
+// Der Satzspiegel — was auf einer Seite Platz hat. Der laufende Fuß sitzt
+// darunter im Rand und nimmt davon nichts weg.
+const INHALT_PX = (SEITE_PT - RAND_OBEN_PT - RAND_UNTEN_PT) * PT;
+// Abstand zwischen Trennlinie und Tabelle auf den Folgeseiten. Auf der ersten
+// schafft ihn der Angabenblock: zwischen dessen letzter Zeile und der Tabelle
+// liegen rund 38 pt. Zwei Zeilenhöhen kommen dem nahe, damit eine Folgeseite
+// oben genauso atmet wie die erste. Eine Zeilenhöhe war zu knapp — die
+// Spaltenzeile hing am Strich.
+const ABSTAND_FOLGE_PT = 40.32;
+// Wie viele Zeilenhöhen unten frei bleiben, zusätzlich zu den 16,8 pt zwischen
+// Satzspiegel und Fußzeile. Eine Tabelle, die bis an die letzte mögliche Zeile
+// geht, drängt sich an den Fuß. Zwei Zeilen ergeben rund 14 mm Reserve — die
+// einzige Stellschraube, wenn es enger oder weiter werden soll.
+const LUFT_ZEILEN = 2;
+
+/**
+ * Ein leeres Blatt mit Fuß.
+ *
+ * Kopfleiste und Trennlinie stehen auf JEDER Seite — jedes Blatt eines
+ * Angebots soll für sich erkennbar sein, auch wenn nur die dritte Seite auf
+ * dem Tisch liegt. Das abgelöste Makro wiederholte allein die Spaltenzeile
+ * (`PrintTitleRows = "$12:$12"`); hier ist es der ganze Kopf.
+ *
+ * Die Angaben — Kunde, Projekt, Angebots-Nr., Datum, Bearbeiter — bleiben auf
+ * der ersten. Sie stehen einmal am Dokument, nicht an jeder Seite.
+ */
+function blattBauen(d, spalten, mitAngaben) {
+  const blatt = el("div", "blatt");
+  // Der eigentliche Satzspiegel: 763,3 pt breit, 9 pt innerhalb des
+  // Blattpolsters. Die 9 pt gehören der Fußzeile, die beidseits darüber
+  // hinausragt — Excels Fußzeile hat einen eigenen, schmaleren Rand. Ohne
+  // diese Hülle wäre die Tabelle 781,3 pt breit, die farbigen Bänder aber
+  // blieben bei 763,3: „Gesamt VK" und die €-Zeichen stünden weiß auf Weiß
+  // daneben.
+  const satz = el("div", "satz");
+  blatt.append(satz);
+
+  let angaben = null;
+  {
+    const kopf = el("div", "kopf");
+    const img = el("img");
+    img.alt = "";
+    img.hidden = !d.logo;
+    if (d.logo) img.src = d.logo;
+    kopf.classList.toggle("mitLogo", !!d.logo);
+    const titel = el("div", "titel"); titel.textContent = TITEL;
+    const zeilen = absenderZeilen(d);
+    const firma = el("div", "firma"); firma.textContent = zeilen[0] || "";
+    const adr1 = el("div", "adr1"); adr1.textContent = zeilen[1] || "";
+    const adr2 = el("div", "adr2"); adr2.textContent = zeilen.slice(2).join("  |  ");
+    kopf.append(img, titel, firma, adr1, adr2);
+
+    const linie = el("div", "kopflinie");
+    satz.append(kopf, linie);
+    if (mitAngaben) {
+      angaben = angabenBauen(d);
+      satz.append(angaben);
+    }
+  }
+
+  const tab = el("table");
+  const cols = el("colgroup");
+  for (const sp of spalten) {
+    const c = el("col");
+    c.style.width = `${sp.w}pt`;
+    cols.append(c);
+  }
+  const kopfzeile = el("tr", "band");
+  for (const sp of spalten) {
+    const th = el("th", sp.k);
+    th.textContent = sp.t;
+    kopfzeile.append(th);
+  }
+  const thead = el("thead");
+  thead.append(kopfzeile);
+  const koerper = el("tbody");
+  tab.append(cols, thead, koerper);
+  // Der Abstand steht hier und nicht im Stylesheet: die Umbruchrechnung
+  // braucht dieselbe Zahl, und zweimal dieselbe Zahl läuft auseinander.
+  if (!mitAngaben) tab.style.marginTop = `${ABSTAND_FOLGE_PT}pt`;
+  satz.append(tab);
+
+  return { blatt, tab, thead, koerper, angaben };
+}
+
+/** Der laufende Fuß einer Seite. */
+function fussBauen(d, nr, von) {
+  const f = el("div", "laufend");
+  const links = el("span");
+  links.textContent = d.fuss || absenderZeilen(d).join("  |  ");
+  const luecke = el("span", "spacer");
+  const rechts = el("span");
+  // Die Seitenzahl steht wie in der Vorlage links vom Erstelldatum. Sie ist
+  // jetzt zu haben, weil der Umbruch hier gerechnet wird.
+  rechts.textContent = `Seite ${nr} von ${von}      Erstellt am `
+    + datum(new Date().toISOString().slice(0, 10));
+  f.append(links, luecke, rechts);
+  return f;
+}
+
+/** Eine Summenzeile — Übertrag oder Gesamtsumme. */
+function summenZeile(spalten, beschriftung, betrag, klasse) {
+  const tr = el("tr", `band ${klasse}`);
+  const leer = el("td");
+  // Die Beschriftung bekommt DREI Spalten. „Gesamtsumme:" ist ein einziges
+  // Wort und setzt in 12,96 pt fett — es lässt sich nicht umbrechen, und was
+  // nicht umbricht, läuft über. Eine Zeile, die überläuft, hört auch nicht
+  // mehr auf `text-align:right`: sie beginnt an der linken Kante und läuft
+  // nach rechts in den Betrag hinein („Gesamtsumme:16.040,50 €"). Mehr
+  // Innenabstand hilft nicht, der verkleinert nur den Kasten. Platz hilft.
+  //
+  // Zwei Spalten waren zu knapp bemessen. Auf Stufe 3 ergaben sie 133 pt und
+  // reichten, auf Stufe 1 und 2 fehlt die EP-Spalte und es blieben 88 pt —
+  // dort lief es über. Drei Spalten geben 177 bzw. 171,4 pt, also in beiden
+  // Fällen rund das Doppelte des Bedarfs. Der Puffer ist Absicht: die
+  // Spaltenbreiten stammen aus Calibri-Metriken, und wo Calibri fehlt, setzt
+  // die Ersatzschrift breiter. Die Zellen sind in einer Summenzeile ohnehin
+  // leer, es geht also nichts verloren.
+  leer.colSpan = spalten.length - 4;
+  const lbl = el("td", "lbl");
+  lbl.colSpan = 3;
+  lbl.textContent = beschriftung;
+  const wert = el("td", "vk");
+  wert.textContent = EURO.format(betrag);
+  tr.append(leer, lbl, wert);
+  return tr;
+}
+
+/**
+ * Verteilt die Zeilen auf Seiten.
+ *
+ * `hoehen` sind die gemessenen Zeilenhöhen in Pixeln, `mass` die Höhen von
+ * Tabellenkopf, Übertrags- und Gesamtsummenzeile sowie des Kopfblocks der
+ * ersten Seite.
+ *
+ * Eine Positionszeile bleibt nicht als letzte auf einer Seite stehen: eine
+ * Überschrift ohne das, was sie überschreibt, ist keine Überschrift. Sie
+ * wandert dann mit auf die nächste Seite — das ist das Gegenstück zu
+ * `PreventGroupSplits` im abgelösten Makro, nur dass der Umbruch hier
+ * ausgerechnet und nicht von Hand gesetzt wird.
+ */
+function seitenRechnen(zeilen, hoehen, mass) {
+  const verfuegbar = INHALT_PX - LUFT_ZEILEN * mass.thead;
+
+  const seiten = [];
+  let seite = { von: 0, bis: 0, ein: null, aus: null };
+  let hoehe = mass.kopfErste + mass.thead;
+  let laufend = 0, i = 0;
+
+  const schliessen = (uebertrag) => {
+    seite.aus = uebertrag;
+    seiten.push(seite);
+    seite = { von: i, bis: i, ein: uebertrag, aus: null };
+    // Folgeseiten tragen den Kopf ohne die Angaben, dazu die Spaltenzeile und
+    // den angeschlossenen Übertrag.
+    hoehe = mass.kopfFolge + mass.thead + mass.uebertrag;
+  };
+
+  while (i < zeilen.length) {
+    // Platz für die Übertragszeile am Fuß muss frei bleiben.
+    if (seite.bis > seite.von && hoehe + hoehen[i] + mass.uebertrag > verfuegbar) {
+      // Positionsköpfe am Seitenende mitnehmen.
+      let zurueck = 0;
+      while (seite.bis - zurueck > seite.von && zeilen[seite.bis - zurueck - 1].istBlock) zurueck++;
+      if (zurueck > 0 && seite.bis - zurueck > seite.von) {
+        for (let k = seite.bis - zurueck; k < seite.bis; k++) laufend -= zeilen[k].beitrag;
+        i = seite.bis = seite.bis - zurueck;
+      }
+      schliessen(laufend);
+      continue;
+    }
+    hoehe += hoehen[i];
+    laufend += zeilen[i].beitrag;
+    seite.bis = ++i;
+  }
+
+  // Die Gesamtsumme braucht ihren Platz auf der letzten Seite.
+  if (hoehe + mass.gesamt > verfuegbar && seite.bis > seite.von) schliessen(laufend);
+  seiten.push(seite);
+  return seiten;
+}
+
+/**
+ * Zeichnet das Angebot aus einer Abschrift — beim Laden und bei jedem
+ * „Aktualisieren".
+ */
+function zeichnen(d) {
+  const bogen = $("#bogen");
+  bogen.textContent = "";
+
+  $("#stufe").textContent = String(d.stufe);
+  $("#stufeText").textContent = STUFEN[d.stufe] ?? "";
+
+  const spalten = spaltenFuer(d.stufe);
+  const zeilen = zeilenBauen(d, spalten);
+
+  // ---- Durchgang 1: messen ----
+  // Alles kommt in ein echtes Blatt, damit die Breiten stimmen und eine
+  // umbrechende Beschreibung ihre wahre Höhe hat.
+  const mess = blattBauen(d, spalten, true);
+  bogen.append(mess.blatt);
+  for (const z of zeilen) mess.koerper.append(z.tr);
+  const ueMuster = summenZeile(spalten, "Übertrag", 0, "uebertrag");
+  const gsMuster = summenZeile(spalten, "Gesamtsumme:", d.gesamt, "gesamt");
+  mess.koerper.append(ueMuster, gsMuster);
+
+  const kopfErste = mess.tab.offsetTop - RAND_OBEN_PT * PT;
+  const mass = {
+    thead: mess.thead.offsetHeight,
+    uebertrag: ueMuster.offsetHeight,
+    gesamt: gsMuster.offsetHeight,
+    kopfErste,
+    // Folgeseiten ohne den Angabenblock — seine Höhe fällt weg, dafür kommt
+    // der Abstand zwischen Trennlinie und Tabelle dazu.
+    kopfFolge: kopfErste - (mess.angaben ? mess.angaben.offsetHeight : 0)
+               + ABSTAND_FOLGE_PT * PT,
+  };
+  const hoehen = zeilen.map(z => z.tr.offsetHeight);
+
+  // ---- Durchgang 2: bauen ----
+  const seiten = seitenRechnen(zeilen, hoehen, mass);
+  bogen.textContent = "";
+
+  seiten.forEach((s, nr) => {
+    const { blatt, koerper } = blattBauen(d, spalten, nr === 0);
+    if (s.ein !== null) koerper.append(summenZeile(spalten, "Übertrag", s.ein, "uebertrag"));
+    for (let i = s.von; i < s.bis; i++) koerper.append(zeilen[i].tr);
+    if (s.aus !== null) koerper.append(summenZeile(spalten, "Übertrag", s.aus, "uebertrag"));
+    if (nr === seiten.length - 1) {
+      koerper.append(summenZeile(spalten, "Gesamtsumme:", d.gesamt, "gesamt"));
+    }
+    blatt.append(fussBauen(d, nr + 1, seiten.length));
+    bogen.append(blatt);
+  });
+
+  einpassen();
+  schriftPruefen();
+}
+
+/**
+ * Passt den Bogen in die Bühne ein.
+ *
+ * Ein Blatt ist 841,68 pt breit — mehr, als ein schmales Fenster hergibt. Ohne
+ * Verkleinerung stünde dort kein A4 quer, sondern ein an beiden Rändern
+ * beschnittener Ausschnitt. Vergrößert wird nie: ein hochskaliertes Blatt wäre
+ * unscharf und zeigte nichts, was nicht schon da wäre.
+ *
+ * Die Transformation lässt den Satz unberührt, also bleibt die Höhe des Bogens
+ * im Raster die unverkleinerte. Der negative Rand gibt den Platz zurück, den
+ * die Verkleinerung freimacht — sonst scrollte die Bühne ins Leere.
+ */
+function einpassen() {
+  const bogen = $("#bogen"), buehne = $("#buehne");
+  bogen.style.transform = "none";
+  bogen.style.marginBottom = "0";
+  const breite = bogen.offsetWidth;
+  if (!breite) return;
+  const verfuegbar = buehne.clientWidth;
+  const faktor = Math.min(1, verfuegbar / breite);
+  // Waagerecht mittig: was neben dem — gegebenenfalls verkleinerten — Bogen
+  // übrig bleibt, geht je zur Hälfte nach links und rechts. Der Bogen behält
+  // im Satz seine volle Blattbreite, `margin:0 auto` zentrierte also den
+  // ungeschrumpften Kasten und nicht das, was man sieht.
+  //
+  // Die Reihenfolge zählt: `translateX(r) scale(f)` heißt „erst verkleinern,
+  // dann verschieben" — ein Punkt p landet bei r + f·p. Der linke Rand liegt
+  // damit genau bei r.
+  const rand = Math.max(0, (verfuegbar - breite * faktor) / 2);
+  bogen.style.transform = `translateX(${rand}px) scale(${faktor})`;
+  if (faktor < 1) bogen.style.marginBottom = `${-(1 - faktor) * bogen.offsetHeight}px`;
+}
+
+addEventListener("resize", einpassen);
+
+// ===========================================================================
+// STAND UND AKTUALISIEREN
+// ===========================================================================
+
+let stand = JSON.parse(await invoke("print_payload"));
+zeichnen(stand);
+
+// Das Hauptfenster meldet, dass sich etwas geändert hat; geholt wird der neue
+// Stand erst auf Klick. Eine Vorschau, die sich von selbst umbaut, während man
+// auf „Drucken" zielt, verschiebt einem das Blatt unter der Hand.
+function veraltet(ja) {
+  $("#aktualisieren").hidden = !ja;
+  $("#stufeText").classList.toggle("veraltet", ja);
+  $("#stufeText").textContent = ja
+    ? "die Kalkulation wurde inzwischen geändert"
+    : (STUFEN[stand.stufe] ?? "");
+}
+
+listen("kalkula://druck-veraltet", () => veraltet(true));
+
+listen("kalkula://druck-neu", e => {
+  try { stand = JSON.parse(e.payload); } catch { return; }
+  // Die Bildlaufstelle halten: wer gerade die dritte Seite ansieht, will nach
+  // dem Aktualisieren nicht wieder oben anfangen.
+  const buehne = $("#buehne");
+  const wo = buehne.scrollTop;
+  zeichnen(stand);
+  buehne.scrollTop = wo;
+  veraltet(false);
+  $("#status").textContent = "Aktualisiert.";
+  $("#status").className = "ok";
+});
+
+$("#aktualisieren").addEventListener("click", () => {
+  $("#status").textContent = "Wird geholt …";
+  $("#status").className = "";
+  invoke("print_request");
+});
+
+// ---- Drucken ----
+// Der Druckdialog des Systems. Dort steht auch „Als PDF sichern" — deshalb
+// gibt es hier keinen eigenen PDF-Knopf: er könnte nichts, was der Dialog
+// nicht besser kann, und müsste ein Papierformat raten.
+//
+// Nicht `window.print()`: unter macOS steckt hinter dem Fenster WKWebView, und
+// das kennt den Aufruf nicht — der Knopf tat nichts. Dort nimmt Rust die
+// Blätter statt dessen als PDF auf und druckt die; warum nicht mehr den
+// Webview selbst, steht in `src-tauri/src/pdf.rs`. Wo Rust das nicht kann
+// (Windows, Linux), meldet `print_build` `false`, und dann tut es
+// `window.print()`.
+//
+// Zwei Schritte, und die Teilung ist der Sinn der Sache: erst aufnehmen,
+// solange die Vorschau ihre Aufnahmegestalt trägt, dann wieder einpassen,
+// erst dann den Dialog. Ginge der Dialog gleich auf, stünde das Fenster für
+// dessen ganze Dauer unverkleinert und weiß daneben.
+async function drucken() {
+  const buehne = $("#buehne");
+  const stelle = buehne.scrollTop;
+  let gebaut = false;
+  try {
+    // Erst die Gestalt, dann messen. Andersherum stünden die Maße der
+    // Bildschirmgestalt in den Ausschnitten — verkleinert und um den
+    // Bildlauf verschoben.
+    document.documentElement.classList.add("aufnahme");
+    buehne.scrollTop = 0;
+    // Wo die Blätter auf der Seite liegen, in CSS-Pixeln. Nicht `offsetTop`:
+    // die Blätter hängen an mehreren Kästen ineinander, und nur
+    // `getBoundingClientRect()` gibt die Lage in einem gemeinsamen Raum an.
+    // Der Bildlauf der Seite kommt hinzu, weil `createPDF` in Seiten- und
+    // nicht in Fensterkoordinaten rechnet.
+    const blaetter = [...document.querySelectorAll(".blatt")].map(b => {
+      const r = b.getBoundingClientRect();
+      return { x: r.left + scrollX, y: r.top + scrollY, breite: r.width, hoehe: r.height };
+    });
+    if (!blaetter.length) throw new Error("Es gibt nichts zu drucken.");
+    gebaut = await invoke("print_build", { blaetter: JSON.stringify(blaetter) });
+  } catch (e) {
+    $("#status").textContent = String(e?.message ?? e);
+    $("#status").className = "error";
+    return;
+  } finally {
+    // In jedem Fall zurück in die Bildschirmgestalt — auch wenn die Aufnahme
+    // schiefging. Eine Vorschau, die weiß und unverkleinert stehen bleibt,
+    // sähe aus wie ein Fehler im Satz.
+    document.documentElement.classList.remove("aufnahme");
+    einpassen();
+    buehne.scrollTop = stelle;
+  }
+  if (gebaut) {
+    try {
+      await invoke("print_now");
+      $("#status").textContent = "";
+      $("#status").className = "";
+    } catch (e) {
+      $("#status").textContent = String(e?.message ?? e);
+      $("#status").className = "error";
+    }
+    return;
+  }
+  window.print();
+}
+
+// Der Rückfallweg druckt den Webview selbst und braucht dieselbe Gestalt.
+// Unter macOS läuft er nicht, dort nimmt `drucken()` die Klasse selbst.
+addEventListener("beforeprint", () => document.documentElement.classList.add("aufnahme"));
+addEventListener("afterprint", () => {
+  document.documentElement.classList.remove("aufnahme");
+  einpassen();
+});
+
+$("#drucken").addEventListener("click", drucken);
+$("#schliessen").addEventListener("click", () => invoke("close_print_window"));
+addEventListener("keydown", e => {
+  if (e.key === "Escape") invoke("close_print_window");
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") { e.preventDefault(); drucken(); }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Einstellungen</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  /* Was hier steht, gehört dem Programm und nicht der einzelnen Kalkulation:
+     Firmenangaben, Logo und die Preisliste sind bei jedem Angebot dieselben.
+     Sie standen bis eben in der Seitenleiste des Hauptfensters und sahen
+     dadurch aus wie Teil des Angebots — gespeichert wurden sie auch damals
+     schon in den Einstellungen, nur am falschen Ort gezeigt.
+
+     Was in der Seitenleiste bleibt, gehört zum jeweiligen Angebot: Kunde,
+     Projekt, Angebots-Nr., Datum, Bearbeiter, Lohnsatz und Zuschlag. Die
+     stehen auch in der `.kalk`-Datei; alles hier nicht.
+
+     Geschrieben wird von hier aus direkt über `settings_set` und `logo_pick` —
+     dafür braucht es das Hauptfenster nicht. Nur die Preisliste geht dorthin
+     zurück: eine Tabelle wird an genau einer Stelle gelesen. */
+  body { display:flex; flex-direction:column; padding:14px; gap:14px; overflow:hidden }
+  main { flex:1; overflow:auto; display:flex; flex-direction:column; gap:16px; padding-right:2px }
+
+  section { display:flex; flex-direction:column }
+  /* Die Trennlinie einer Überschrift hat oben wie unten 9 px Luft: `margin:0`
+     und jedes erste Element danach rückt selbst um 9 px ab. Vorher standen
+     unter den drei Linien 13, 4 und 4 px — je nachdem, ob ein Feld, die
+     Logo-Zeile oder die Kachel folgte. Drei Abschnitte, drei Abstände. */
+  h2 { font-size:12px; font-weight:600; margin:0; display:flex; align-items:center; gap:6px;
+       min-height:calc(26px + 9px + 1px); padding-bottom:9px; border-bottom:1px solid var(--line) }
+  h2 .meta { font-weight:400; color:var(--muted); font-size:11px; line-height:1.3 }
+
+  /* Das Logo auf kariertem Grund: ein durchsichtiges PNG verschwände sonst auf
+     dunklem Grund, und man könnte nicht unterscheiden, ob es fehlt oder nur
+     weiß auf weiß ist. */
+  .logo { display:flex; align-items:center; gap:10px; padding-top:9px }
+  .logo img { height:44px; width:auto; max-width:150px; border-radius:2px; padding:3px;
+              background:
+                linear-gradient(45deg, #2b3039 25%, transparent 25%, transparent 75%, #2b3039 75%),
+                linear-gradient(45deg, #2b3039 25%, #1e2229 25%, #1e2229 75%, #2b3039 75%);
+              background-size:10px 10px; background-position:0 0, 5px 5px }
+  .logo .spacer { flex:1 }
+  .logo .leer { color:var(--muted); font-size:12px }
+
+  .kachel { background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+            padding:10px 12px; display:flex; flex-direction:column; gap:6px; margin-top:9px }
+  .kachel .datei { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .kachel .zeile { display:flex; align-items:center; gap:8px; color:var(--muted); font-size:12px }
+  .kachel .zeile .spacer { flex:1 }
+
+  footer { flex:none; display:flex; gap:8px; align-items:center;
+           padding-top:11px; border-top:1px solid var(--line) }
+  footer .spacer { flex:1 }
+</style>
+</head>
+<body>
+
+<main>
+  <section>
+    <h2>Kopfzeile <span class="meta">drei Zeilen, oben rechts auf dem Angebot</span></h2>
+    <div class="field">
+      <textarea id="kopf" rows="3"
+        placeholder="Firma&#10;Straße, Ort&#10;E-Mail  |  Web"></textarea>
+    </div>
+    <div class="field">
+      <label class="t" for="fuss">Fußzeile <span class="meta">eine Zeile, auf jeder Seite</span></label>
+      <input type="text" id="fuss" placeholder="Firma  |  Straße, Ort  |  E-Mail">
+    </div>
+  </section>
+
+  <section>
+    <h2>Logo <span class="meta">oben links, 48 × 47 pt</span></h2>
+    <div class="logo">
+      <img id="logoBild" alt="" hidden>
+      <span class="leer" id="logoLeer">Kein Logo gewählt</span>
+      <span class="spacer"></span>
+      <button id="logoWaehlen">Auswählen …</button>
+      <button id="logoWeg" hidden>Entfernen</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Preisliste <span class="meta">gilt für alle Kalkulationen</span></h2>
+    <div class="kachel">
+      <div class="datei" id="katDatei">Keine geladen</div>
+      <div class="zeile"><span id="katInfo">Ohne Preisliste gibt es nur Freitextzeilen.</span></div>
+      <div class="zeile">
+        <button id="katWaehlen">Auswählen …</button>
+        <button id="katZeigen" disabled>Nachsehen …</button>
+        <span class="spacer"></span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span id="status"></span>
+  <span class="spacer"></span>
+  <button class="primary" id="schliessen">Fertig</button>
+</footer>
+
+<script type="module">
+import { invoke, listen } from "./vendor/tauri-api.js";
+
+const $ = s => document.querySelector(s);
+
+function melde(text, art = "") {
+  $("#status").textContent = text;
+  $("#status").className = art;
+}
+
+// ---- Kopf- und Fußzeile -----------------------------------------------
+// Beim Tippen sofort ablegen: ein „Speichern" gäbe es hier sonst zusätzlich,
+// und ein Einstellungsfenster, das man speichern muss, vergisst man zu
+// speichern. Das Hauptfenster liest die Werte erst beim Drucken wieder —
+// es hält keine Kopie, die auseinanderlaufen könnte.
+for (const [feld, schluessel] of [["#kopf", "absender"], ["#fuss", "fuss"]]) {
+  $(feld).addEventListener("input", e => {
+    invoke("settings_set", { schluessel, wert: e.target.value })
+      .then(() => melde("Gespeichert.", "ok"))
+      .catch(err => melde(String(err), "error"));
+  });
+}
+
+// ---- Logo --------------------------------------------------------------
+let logo = "";
+function logoZeichnen() {
+  $("#logoBild").hidden = !logo;
+  if (logo) $("#logoBild").src = logo;
+  $("#logoLeer").hidden = !!logo;
+  $("#logoWeg").hidden = !logo;
+}
+
+$("#logoWaehlen").addEventListener("click", async () => {
+  try {
+    const neu = await invoke("logo_pick");
+    if (!neu) return;
+    logo = neu;
+    logoZeichnen();
+    melde("Logo übernommen.", "ok");
+  } catch (e) {
+    melde(String(e?.message ?? e), "error");
+  }
+});
+
+$("#logoWeg").addEventListener("click", async () => {
+  await invoke("logo_clear");
+  logo = "";
+  logoZeichnen();
+  melde("Logo entfernt.");
+});
+
+// ---- Preisliste --------------------------------------------------------
+// Auswählen und Nachsehen kann nur das Hauptfenster: dort liegt der gelesene
+// Katalog, und eine Tabelle wird an genau einer Stelle ausgewertet. Von hier
+// geht nur die Bitte hin; der neue Stand kommt als Ereignis zurück.
+$("#katWaehlen").addEventListener("click", () => {
+  melde("Preisliste wird gelesen …");
+  invoke("settings_submit", { payload: JSON.stringify({ aktion: "preisliste" }) })
+    .catch(e => melde(String(e), "error"));
+});
+$("#katZeigen").addEventListener("click", () => {
+  invoke("settings_submit", { payload: JSON.stringify({ aktion: "nachsehen" }) })
+    .catch(e => melde(String(e), "error"));
+});
+
+function katalogZeichnen(d) {
+  const kat = d && d.katalog;
+  $("#katZeigen").disabled = !kat;
+  if (!kat) {
+    $("#katDatei").textContent = "Keine geladen";
+    $("#katInfo").textContent = "Ohne Preisliste gibt es nur Freitextzeilen.";
+    return;
+  }
+  $("#katDatei").textContent = kat.datei;
+  $("#katDatei").title = kat.datei;
+  $("#katInfo").textContent =
+    `${kat.kategorien} Kategorien, ${kat.produkte} Produkte` +
+    (kat.hinweise ? ` · ${kat.hinweise} mit Hinweis` : "") +
+    (kat.uebergangen ? ` · ${kat.uebergangen} Blatt übergangen` : "");
+}
+
+listen("kalkula://einstellungen-neu", e => {
+  try {
+    const d = JSON.parse(e.payload);
+    katalogZeichnen(d);
+    if (d.meldung) melde(d.meldung, d.art || "");
+  } catch { /* nichts zu tun */ }
+});
+
+$("#schliessen").addEventListener("click", () => invoke("close_settings_window"));
+addEventListener("keydown", e => { if (e.key === "Escape") invoke("close_settings_window"); });
+
+// ---- Start -------------------------------------------------------------
+$("#kopf").value = (await invoke("settings_get", { schluessel: "absender" })) || "";
+$("#fuss").value = (await invoke("settings_get", { schluessel: "fuss" })) || "";
+logo = (await invoke("logo_get")) || "";
+logoZeichnen();
+katalogZeichnen(JSON.parse(await invoke("settings_window_payload")));
+</script>
+</body>
+</html>

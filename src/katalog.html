@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preisliste</title>
+<link rel="stylesheet" href="app.css">
+<style>
+  /* Dieses Fenster zeigt, WAS beim Lesen der Preisliste erkannt wurde — und
+     lässt es korrigieren. Es liest die Datei nicht selbst: es kennt nur
+     Beschreibungen, gelesen und gerechnet wird im Hauptfenster. Dieselbe
+     Arbeitsteilung wie zwischen docfills Zahnrad-Fenster und seiner Liste.
+
+     Der Zweck ist Nachsehen, nicht Bedienen. Eine Erkennung, die man nicht
+     nachprüfen kann, ist schlimmer als eine fest eingetragene Liste: sie irrt
+     sich, ohne es zu sagen. */
+  body { display:flex; flex-direction:column; padding:14px; gap:10px; overflow:hidden }
+  header { flex:none }
+  header h1 { font-size:14px; margin:0 0 3px }
+  header .datei { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  #liste { flex:1; overflow:auto; display:flex; flex-direction:column; gap:8px; padding-right:2px }
+
+  .kat { background:var(--surface); border:1px solid var(--line); border-radius:var(--r) }
+  .kat > .kopf { display:flex; align-items:center; gap:8px; padding:9px 12px; cursor:pointer;
+                 user-select:none }
+  .kat > .kopf .name { font-weight:600; flex:1; min-width:0;
+                       overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .kat > .kopf .zahl { color:var(--muted); font-variant-numeric:tabular-nums; flex:none }
+  /* Derselbe Falter wie in docfills Zahnrad-Fenster: dasselbe Zeichen wie an
+     einer Auswahlliste, gedreht, wenn zu. */
+  .kat > .kopf .falter { flex:none; width:22px; height:22px; padding:0; line-height:1;
+                         border-color:transparent; background:none; color:var(--muted) }
+  .kat > .kopf .falter::before { content:"▾"; display:block; font-size:13px;
+                                 transition:transform var(--dur) var(--ease) }
+  .kat.zu > .kopf .falter::before { transform:rotate(-90deg) }
+  .kat.zu > .rumpf { display:none }
+  .rumpf { padding:0 12px 12px; border-top:1px solid var(--line); margin-top:0 }
+
+  /* Die erkannten Zahlen. Sie stehen als Eingabefelder da, weil sie welche
+     sind — nicht als Text mit einem „Ändern“ daneben. Wer eine Zahl sieht, die
+     nicht stimmt, tippt die richtige hinein. */
+  .schema { display:grid; grid-template-columns:repeat(auto-fill, minmax(124px, 1fr));
+            gap:8px; padding-top:11px }
+  .schema label { display:block; font-size:12px; color:var(--muted); margin-bottom:2px }
+  .schema .feld input { padding:4px 6px }
+  .schema .voll { grid-column:1/-1 }
+
+  .hinweis { margin-top:10px; padding:7px 10px; border-radius:var(--r-sm);
+             color:var(--warn); background:color-mix(in srgb, var(--warn) 12%, transparent) }
+
+  /* Die ersten Produkte als Beleg: ob die Aufteilung stimmt, sieht man nicht
+     an sieben Zahlen, sondern daran, ob „Rohr“ und „Bogen 90°“ dabei
+     herauskommen — und ob unter ihnen Werte stehen. */
+  .proben { margin-top:11px; display:flex; flex-direction:column; max-height:220px; overflow:auto }
+  .probe { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:12px }
+  .probe + .probe { box-shadow:0 -1px 0 var(--line) }
+  .probe .pn { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+  .probe .pe { flex:none; color:var(--muted); font-variant-numeric:tabular-nums }
+
+  .uebergangen { color:var(--muted); font-size:12px; padding:0 2px }
+  footer { flex:none; display:flex; gap:8px; align-items:center;
+           padding-top:10px; border-top:1px solid var(--line) }
+  footer .spacer { flex:1 }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Erkannte Preisliste</h1>
+  <div class="datei" id="datei"></div>
+</header>
+
+<div id="liste"></div>
+<div class="uebergangen" id="uebergangen"></div>
+
+<footer>
+  <span id="status"></span>
+  <span class="spacer"></span>
+  <button id="schliessen">Schließen</button>
+</footer>
+
+<script type="module">
+import { invoke, listen } from "./vendor/tauri-api.js";
+
+const $ = s => document.querySelector(s);
+const el = (t, k) => { const e = document.createElement(t); if (k) e.className = k; return e; };
+
+// Welche Kategorien zugeklappt sind, überlebt ein Neuzeichnen — sonst klappte
+// nach jedem „Übernehmen“ die ganze Liste wieder auf.
+const zu = new Set();
+
+// Die Felder des Schemas, einmal beschrieben. Die Beschriftungen sagen, was
+// die Zahl bedeutet, nicht wie das Feld heißt: „Zeile mit den Einheiten“ ist
+// nachprüfbar, „einheitZeile“ wäre nur der Variablenname.
+const FELDER = [
+  { k: "kopfVon",      t: "Kopfzeilen von",        hilfe: "Erste Zeile, aus der der Produktname zusammengesetzt wird." },
+  { k: "kopfBis",      t: "… bis",                 hilfe: "Letzte Zeile des Produktnamens." },
+  { k: "einheitZeile", t: "Zeile mit den Einheiten", hilfe: "Die Zeile mit „€ / m“ oder „h / Stück“. Sie bestimmt, welche Spalten Werte tragen." },
+  { k: "datenVon",     t: "Daten von",             hilfe: "Erste Zeile mit Größen." },
+  { k: "datenBis",     t: "… bis",                 hilfe: "Letzte Zeile mit Größen." },
+  { k: "achsSpalte",   t: "Spalte der Größe",      hilfe: "Die Spalte mit den DN-Werten (A = 1, B = 2 …)." },
+];
+
+let bericht = null;
+
+function zeichnen() {
+  $("#datei").textContent = bericht.datei;
+  $("#datei").title = bericht.datei;
+
+  const liste = $("#liste");
+  liste.textContent = "";
+
+  for (const kat of bericht.kategorien) {
+    const box = el("div", `kat${zu.has(kat.name) ? " zu" : ""}`);
+    box.dataset.blatt = kat.name;
+
+    const kopf = el("div", "kopf");
+    const falter = el("button", "falter");
+    falter.type = "button";
+    falter.setAttribute("aria-label", "Auf- und zuklappen");
+    const name = el("div", "name"); name.textContent = kat.name; name.title = kat.name;
+    const zahl = el("span", "zahl");
+    zahl.textContent = `${kat.produkte} Produkte · ${kat.werte}/${kat.felder} Werte`;
+    kopf.append(falter, name, zahl);
+    if (kat.hinweise.length) {
+      const f = el("span", "flag"); f.textContent = "Hinweis";
+      kopf.append(f);
+    } else {
+      const f = el("span", "flag ok"); f.textContent = "gelesen";
+      kopf.append(f);
+    }
+    box.append(kopf);
+
+    const rumpf = el("div", "rumpf");
+
+    for (const h of kat.hinweise) {
+      const d = el("div", "hinweis"); d.textContent = h;
+      rumpf.append(d);
+    }
+
+    const schema = el("div", "schema");
+    for (const f of FELDER) {
+      const feld = el("div", "feld");
+      const lab = el("label"); lab.textContent = f.t;
+      const inp = el("input");
+      inp.type = "number"; inp.min = "1"; inp.step = "1";
+      inp.value = kat.schema[f.k] ?? "";
+      inp.dataset.f = f.k;
+      inp.title = f.hilfe;
+      lab.htmlFor = inp.id = `f_${kat.name.replace(/\W/g, "_")}_${f.k}`;
+      feld.append(lab, inp);
+      schema.append(feld);
+    }
+    // Die Achse ist keine Zahl: entweder trägt die Zeile eine DN-Größe, oder
+    // sie trägt selbst den Produktnamen (wie in „Nebenleistungen“).
+    const achse = el("div", "feld voll");
+    const alab = el("label"); alab.textContent = "Was die Zeilen unterscheidet";
+    const w = el("div", "wrap");
+    const sel = el("select");
+    sel.dataset.f = "achse";
+    for (const [v, t] of [["dn", "Größen (DN) — Produkte stehen in den Spalten"],
+                          ["name", "Bezeichnungen — Produkte stehen in den Zeilen"]]) {
+      const o = el("option"); o.value = v; o.textContent = t; sel.append(o);
+    }
+    sel.value = kat.schema.achse;
+    w.append(sel);
+    achse.append(alab, w);
+    schema.append(achse);
+    rumpf.append(schema);
+
+    const proben = el("div", "proben");
+    for (const p of kat.beispiele) {
+      const z = el("div", "probe");
+      const pn = el("div", "pn");
+      pn.textContent = p.name || "(ohne Namen)";
+      pn.title = p.name;
+      const pe = el("span", "pe");
+      pe.textContent = `${p.istStunden ? "h" : "€"} / ${p.einheit} · ${p.werte} Werte`;
+      z.append(pn, pe);
+      proben.append(z);
+    }
+    if (kat.produkte > kat.beispiele.length) {
+      const rest = el("div", "probe");
+      const pn = el("div", "pn");
+      pn.textContent = `… und ${kat.produkte - kat.beispiele.length} weitere`;
+      rest.append(pn);
+      proben.append(rest);
+    }
+    rumpf.append(proben);
+
+    const fuss = el("div", "row");
+    const uebernehmen = el("button", "primary");
+    uebernehmen.type = "button";
+    uebernehmen.dataset.uebernehmen = kat.name;
+    uebernehmen.textContent = "Übernehmen";
+    uebernehmen.title = "Liest dieses Blatt mit den eingetragenen Zahlen neu ein.";
+    const spacer = el("span", "spacer");
+    fuss.append(spacer, uebernehmen);
+    rumpf.append(el("div"), fuss);
+
+    box.append(rumpf);
+    liste.append(box);
+  }
+
+  const u = $("#uebergangen");
+  u.textContent = bericht.uebergangen.length
+    ? "Übergangen: " + bericht.uebergangen.map(x => `${x.blatt} (${x.grund})`).join(", ")
+    : "";
+}
+
+// Auf- und zuklappen. Ein Klick in die Kopfzeile genügt; der Falter ist das
+// Zeichen dafür, nicht die einzige Fläche, die es tut.
+$("#liste").addEventListener("click", e => {
+  const kopf = e.target.closest(".kopf");
+  if (kopf) {
+    const box = kopf.closest(".kat");
+    box.classList.toggle("zu");
+    const name = box.dataset.blatt;
+    box.classList.contains("zu") ? zu.add(name) : zu.delete(name);
+    return;
+  }
+  const b = e.target.closest("button[data-uebernehmen]");
+  if (!b) return;
+  const box = b.closest(".kat");
+  const schema = {};
+  for (const f of box.querySelectorAll("[data-f]")) {
+    schema[f.dataset.f] = f.tagName === "SELECT" ? f.value : Number(f.value);
+  }
+  $("#status").textContent = "Wird neu gelesen …";
+  $("#status").className = "";
+  invoke("catalog_submit", { payload: JSON.stringify({ blatt: b.dataset.uebernehmen, schema }) })
+    .catch(err => { $("#status").textContent = String(err); $("#status").className = "error"; });
+});
+
+// Das Hauptfenster schickt den neuen Stand, nachdem es neu gelesen hat.
+listen("kalkula://katalog-neu", e => {
+  try { bericht = JSON.parse(e.payload); } catch { return; }
+  zeichnen();
+  $("#status").textContent = "Übernommen.";
+  $("#status").className = "ok";
+});
+
+$("#schliessen").addEventListener("click", () => invoke("close_catalog_window"));
+addEventListener("keydown", e => { if (e.key === "Escape") invoke("close_catalog_window"); });
+
+bericht = JSON.parse(await invoke("catalog_payload"));
+zeichnen();
+</script>
+</body>
+</html>

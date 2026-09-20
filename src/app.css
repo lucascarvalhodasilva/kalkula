@@ -1,0 +1,151 @@
+/* Gemeinsame Grundlage für index.html, katalog.html und druck.html:
+   Farben, Formularfelder, Schaltflächen, Statuszeile, Aufklappmenü und der
+   leere Zustand — alles, was mehr als eine Seite braucht.
+
+   Seitenspezifisches bleibt in der jeweiligen Seite: die Postentabelle steht in
+   index.html, die Kategorienliste in katalog.html, das Papierlayout in
+   druck.html. Die drei sehen verschieden aus, weil sie Verschiedenes zeigen;
+   sie hier zusammenzulegen hieße nur, drei Sonderfälle in einer Datei zu
+   pflegen statt drei Regeln in drei.
+
+   In jeder Seite muss <link rel="stylesheet" href="app.css"> VOR dem eigenen
+   <style>-Block stehen, damit die Seitenregeln weiterhin gewinnen.
+
+   Die Farben sind dieselben wie in docfill: die beiden Programme stehen
+   nebeneinander auf demselben Schreibtisch und sollen wie Geschwister aussehen,
+   nicht wie zwei Zukäufe. */
+
+:root {
+  color-scheme:dark;
+  /* Flächen: canvas < sidebar < surface, Eingaben liegen tiefer */
+  --canvas:#14161a; --sidebar:#191c21; --surface:#1e2229; --sunk:#16181d; --raised:#252a33;
+  --ink:#e3e7ee; --muted:#8d96a5;
+  --line:#2b3039;        /* Trenner und Panelkanten, rein zierend */
+  --field-line:#667082;  /* Grenzen von Bedienelementen: 3,6:1 auf der Feldfläche, WCAG 1.4.11 */
+  --accent:#5fa2e0;      /* Text, Fokusringe, Auswahl: 5,9:1 auf den Panels */
+  --accent-solid:#3574bd; --accent-solid-hi:#2f6db5;  /* gefüllte Schaltflächen: Weiß bei 4,8:1 */
+  --ok:#5cc48c; --danger:#ef7d73;
+  --warn:#e0a75f;        /* fällt auf, ist aber kein Fehler: der fehlende Preis */
+  /* Die drei Gliederungsebenen. Eine Position ist nicht bunt, sie ist tiefer:
+     dieselbe Farbe, zweimal abgeschwächt. Eine eigene Farbe je Ebene trüge
+     eine Bedeutung, die die Ebene nicht hat. */
+  --e1:#31456b; --e2:#293852; --e3:#222c3d;
+  /* Der Zebrastreifen als feste Farbe und nicht als durchscheinendes Weiß:
+     eine am Rand haftende Zelle muss deckend sein, und beide Fassungen
+     müssten sonst auf die Nachkommastelle genau übereinstimmen. */
+  --zebra:#20242b;
+  --r:6px; --r-sm:4px;
+  --dur:160ms; --ease:cubic-bezier(.22,1,.36,1);
+}
+@media (prefers-reduced-motion: reduce) { :root { --dur:1ms } * { animation:none !important } }
+
+* { box-sizing:border-box } html,body { margin:0; height:100% }
+body { font:13px/1.45 -apple-system,"Segoe UI",system-ui,sans-serif; color:var(--ink); background:var(--canvas) }
+
+/* ---- Formularfelder ---- */
+.field { padding-block:9px } .field:first-child { padding-top:0 }
+label.t { display:block; font-weight:600; margin-bottom:3px }
+label.t .meta { font-weight:400; color:var(--muted); margin-left:6px }
+input[type=text],input[type=date],input[type=number],select,textarea {
+  width:100%; padding:6px 8px; border:1px solid var(--field-line); border-radius:var(--r-sm);
+  background:var(--sunk); font:inherit; color:inherit;
+  transition:border-color var(--dur) var(--ease), background var(--dur) var(--ease) }
+input:hover,select:hover,textarea:hover { border-color:var(--accent) }
+textarea { min-height:54px; resize:vertical }
+input::placeholder, textarea::placeholder { color:var(--muted); opacity:1 }
+/* Zahlen gehören rechtsbündig und in gleich breiten Ziffern: nur so stehen
+   Komma unter Komma, und eine Spalte von Beträgen ist auf einen Blick zu
+   überschlagen. Das ist der Zweck der Tabelle. */
+input[type=number], .zahl { text-align:right; font-variant-numeric:tabular-nums }
+/* Die Rändelpfeile eines Zahlenfelds nehmen Platz und treffen nie: in einer
+   Tabellenzeile sind sie 9px hoch. Getippt wird ohnehin. */
+input[type=number] { -moz-appearance:textfield }
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0 }
+
+/* Die Auswahllisten der Postenzeile: derselbe abgesetzte Pfeil wie in docfill,
+   damit „hier gibt es eine Liste" dasselbe Zeichen hat wie dort. */
+.wrap { position:relative; display:block }
+.wrap > select { width:100%; appearance:none; -webkit-appearance:none; padding-right:26px; cursor:pointer }
+.wrap::after {
+  content:"▾"; position:absolute; right:1px; top:1px; bottom:1px; width:20px;
+  display:flex; align-items:center; justify-content:center; pointer-events:none;
+  color:var(--muted); font-size:11px; background:var(--raised);
+  border-left:1px solid var(--field-line); border-radius:0 var(--r-sm) var(--r-sm) 0;
+  transition:color var(--dur) var(--ease) }
+.wrap:hover::after { color:var(--accent) }
+/* Eine Liste, die nichts anzubieten hat, soll auch nicht so aussehen, als
+   hätte sie etwas. */
+.wrap:has(select:disabled)::after { opacity:.4 }
+
+/* ---- Bedienelemente ---- */
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px }
+button { font:inherit; padding:5px 11px; border-radius:var(--r-sm); border:1px solid var(--field-line);
+         background:var(--sunk); color:var(--ink); cursor:pointer; white-space:nowrap;
+         transition:background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease) }
+button:hover:not(:disabled) { background:var(--raised); border-color:var(--accent) }
+button:active:not(:disabled) { background:var(--sunk) }
+button.primary { background:var(--accent-solid); border-color:var(--accent-solid); color:#fff; font-weight:600 }
+button.primary:hover:not(:disabled) { background:var(--accent-solid-hi); border-color:var(--accent-solid-hi) }
+button:disabled { opacity:.4; cursor:default }
+button[aria-busy=true] { cursor:progress }
+.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap }
+.row .spacer { flex:1 }
+
+/* Schaltfläche, die wie ein Link aussieht. Es gibt im Projekt bewusst kein
+   <a>: ein Anker würde im Webview navigieren. */
+button.link { background:none; border:0; padding:0; color:var(--accent); cursor:pointer }
+button.link:hover:not(:disabled) { background:none; text-decoration:underline }
+button.link:disabled { opacity:.4; cursor:default }
+
+/* ---- Statuszeile ---- */
+#status { color:var(--muted); min-height:1.45em }
+#status.error { color:var(--danger) }
+#status.ok { color:var(--ok) }
+
+/* ---- leerer Zustand ---- */
+.empty { color:var(--muted); display:flex; flex-direction:column; align-items:center; justify-content:center;
+         text-align:center; gap:3px; height:100%; min-height:72px; padding:12px; max-width:48ch; margin:0 auto }
+.empty b { color:var(--ink); font-weight:600 }
+
+/* ---- Aufklappmenü ----
+   Hängt in jeder Seite direkt am <body>: die Panels scrollen, innerhalb würde
+   das Menü abgeschnitten. Die Position wird per CSSOM gesetzt, ein
+   style-Attribut würde die CSP verwerfen. */
+.menu { position:fixed; z-index:10; min-width:186px; display:flex; flex-direction:column; padding:4px;
+        background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+        box-shadow:0 10px 28px rgba(0,0,0,.5) }
+.menu[hidden] { display:none }
+.menu button { background:none; border:0; border-radius:var(--r-sm); padding:6px 10px; text-align:left;
+               color:var(--ink); font:inherit; cursor:pointer; white-space:nowrap }
+.menu button:hover:not(:disabled), .menu button:focus-visible { background:var(--raised) }
+.menu button.danger { color:var(--danger) }
+.menu button.danger:hover:not(:disabled), .menu button.danger:focus-visible { background:rgba(239,125,115,.12) }
+.menu button:disabled { opacity:.4; cursor:default; background:none }
+.menu hr { border:0; border-top:1px solid var(--line); margin:4px 2px }
+
+/* ---- Dialog ----
+   Ein <dialog> statt confirm(): der Browserdialog blockiert den Webview und
+   sähe in jedem Betriebssystem anders aus. */
+dialog { border:1px solid var(--line); border-radius:var(--r); background:var(--surface); color:var(--ink);
+         padding:0; min-width:min(420px, 92vw); max-width:92vw }
+dialog::backdrop { background:rgba(0,0,0,.5) }
+dialog h3 { margin:0; padding:13px 16px 0; font-size:14px }
+dialog .body { padding:10px 16px 0; color:var(--muted) }
+dialog .body b { color:var(--ink) }
+dialog .foot { display:flex; gap:8px; justify-content:flex-end; padding:14px 16px }
+
+/* ---- Marke ----
+   Der Streifen mit Fassung und Datei, ganz unten in jedem Fenster. */
+.brand { grid-column:1/-1; display:flex; align-items:center; gap:8px; padding:4px 14px 10px;
+         color:var(--muted); font-size:12px }
+.brand .spacer { flex:1 }
+
+/* ---- Hinweisfahne ----
+   Für den Katalog: was beim Lesen auffiel, ohne dass es ein Fehler wäre. */
+.flag { flex:none; font-size:11px; line-height:1; padding:3px 7px; border-radius:999px;
+        color:var(--warn); background:color-mix(in srgb, var(--warn) 16%, transparent) }
+.flag.ok { color:var(--ok); background:color-mix(in srgb, var(--ok) 16%, transparent) }
+.flag.err { color:var(--danger); background:color-mix(in srgb, var(--danger) 16%, transparent) }
+
+@keyframes rowIn { from { opacity:0; transform:translateY(-3px) } to { opacity:1; transform:none } }

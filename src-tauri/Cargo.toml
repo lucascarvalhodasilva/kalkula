@@ -1,0 +1,38 @@
+[package]
+name = "kalkula"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "kalkula_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Nur fürs Logo: der Webview nimmt ein Bild als data:-URI entgegen, nicht als Pfad.
+base64 = "0.22"
+
+# Nur für den Druck unter macOS. Das Angebot wird als PDF aufgenommen
+# (WebKit), zu einem Dokument zusammengelegt (Core Graphics) und von dort aus
+# gedruckt (PDFKit) — siehe `src/pdf.rs`. Die Fassungen sind die, die Tauri
+# ohnehin mitbringt: so bleibt es eine Kopie und kein zweiter Baum.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSPrintInfo", "NSPrintOperation"] }
+objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSData", "NSError", "NSString"] }
+objc2-core-foundation = { version = "0.3", features = ["CFData", "CFURL", "CFString", "CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", features = [
+    "CGContext", "CGDataProvider", "CGPDFContext", "CGPDFDocument", "CGPDFPage",
+] }
+objc2-pdf-kit = { version = "0.3", default-features = false, features = ["PDFDocument", "objc2-app-kit"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["WKWebView", "WKPDFConfiguration", "block2"] }

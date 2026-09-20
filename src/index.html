@@ -1,0 +1,1633 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kalkula</title>
+<!-- lokal eingebunden, damit die App offline funktioniert -->
+<script src="vendor/jszip.min.js"></script>
+<!-- muss VOR dem eigenen <style> stehen, damit die Seitenregeln gewinnen -->
+<link rel="stylesheet" href="app.css">
+<style>
+  /* Farben, Felder, Schaltflächen, Menü und Dialog stehen in app.css und
+     werden mit dem Katalog- und dem Druckfenster geteilt. Hier nur das
+     Seitenlayout und die Postentabelle — die gibt es nur in diesem Fenster. */
+  /* Die Leiste trägt die längsten Eingaben des Fensters — Kundenname,
+     Projektbezeichnung, Absender. Schmaler brachen die beiden nebeneinander
+     stehenden Felder (Angebots-Nr. und Datum) ins Gedränge. */
+  body { display:grid; grid-template-columns:330px minmax(0,1fr);
+         grid-template-rows:minmax(0,1fr) auto;
+         transition:grid-template-columns var(--dur) var(--ease) }
+  body[data-leiste=zu] { grid-template-columns:58px minmax(0,1fr) }
+
+  /* ---- Seitenleiste ----
+     Eigene Kachel, kein Streifen am Fensterrand: gleiche Ränder und Abstände
+     wie die Panels rechts, damit beide Seiten auf einer Linie sitzen. */
+  aside { background:var(--sidebar); border:1px solid var(--line); border-radius:var(--r);
+          margin:14px 0 4px 14px; padding:14px; overflow:auto;
+          display:flex; flex-direction:column; gap:14px }
+  main { padding:14px 14px 4px; overflow:hidden; display:grid; gap:10px;
+         grid-template-columns:minmax(0,1fr);
+         grid-template-rows:auto minmax(0,1fr) auto }
+
+  h2 { font-size:12px; font-weight:600; margin:0; display:flex; align-items:center; gap:6px;
+       min-height:calc(26px + 9px + 1px); padding-bottom:9px; border-bottom:1px solid var(--line) }
+  h2 .meta { font-weight:400; color:var(--muted) }
+  aside section { display:flex; flex-direction:column; gap:0 }
+  /* Kein Rand unter der Überschrift: die 9 px Luft unter ihrer Trennlinie
+     bringt das erste Feld selbst mit (`.field { padding-block:9px }`), und
+     oben sind es dieselben 9 px aus `padding-bottom`. Mit den zusätzlichen
+     4 px stand die Linie näher an der Überschrift als am Inhalt. */
+  aside section h2 { margin-bottom:0 }
+  /* Die Fußleiste bleibt am unteren Rand der Leiste stehen, auch wenn darüber
+     gescrollt wird: „Speichern" ist die eine Schaltfläche, die immer
+     erreichbar sein muss, und sie war bei geöffnetem Absenderfeld unter den
+     Fensterrand gerutscht. `margin-top:auto` hält sie bei kurzem Inhalt unten,
+     `position:sticky` bei langem. */
+  aside > .row { margin-top:auto; position:sticky; bottom:-14px; z-index:1;
+                 padding:11px 0 14px; margin-bottom:-14px;
+                 border-top:1px solid var(--line); background:var(--sidebar) }
+  aside > .row .primary { flex:1 }
+
+  /* Die Nebenangabe in einer Überschrift bleibt eine Nebenangabe: in voller
+     Größe neben einer 12px-Überschrift brach sie um und schob die Linie
+     darunter weg. */
+  h2 .meta { font-size:11px; line-height:1.3 }
+
+  /* ---- Seitenleiste einklappen ----
+     Eingeklappt bleibt eine Schiene stehen: die Schaltfläche behält ihren
+     Platz, statt dass die Leiste ganz verschwindet und der Weg zurück gesucht
+     werden muss. Übernommen aus docfill, samt Zeichen und Verhalten — die
+     beiden Programme stehen nebeneinander, und was man in einem gelernt hat,
+     soll im anderen gelten.
+
+     Anders als dort hat diese Leiste vier Abschnitte. Eingeklappt bleibt nur
+     der erste sichtbar, und von ihm nur die Überschriftzeile mit dem Schalter;
+     darunter die Schiene mit dem, was sonst verdeckt wäre. */
+  #leisteSchalter { margin-left:auto; flex:none; display:grid; place-items:center;
+                    width:26px; height:26px; padding:0; background:none;
+                    border:1px solid transparent; border-radius:var(--r-sm);
+                    color:var(--muted); font:inherit; font-size:13px; line-height:1; cursor:pointer;
+                    transition:background var(--dur) var(--ease), color var(--dur) var(--ease) }
+  #leisteSchalter:hover { background:var(--raised); color:var(--ink) }
+  #leisteSchalter::before { content:"‹" }
+  body[data-leiste=zu] #leisteSchalter::before { content:"›" }
+  #schiene { display:none }
+
+  body[data-leiste=zu] aside { padding:10px 0; gap:8px; align-items:center; overflow:hidden }
+  /* Als :not-Kette, damit ein später hinzukommender Abschnitt nicht
+     durchrutscht: sichtbar bleiben genau der erste Abschnitt und die Schiene. */
+  body[data-leiste=zu] aside > :not(section:first-of-type):not(#schiene) { display:none }
+  body[data-leiste=zu] aside > section:first-of-type > :not(h2) { display:none }
+  body[data-leiste=zu] aside > section:first-of-type > h2 { min-height:auto; margin:0;
+                                                            padding-bottom:0; border-bottom:0 }
+  body[data-leiste=zu] aside > section:first-of-type > h2 > .title { display:none }
+  body[data-leiste=zu] #schiene { display:flex; flex-direction:column; align-items:center; gap:5px }
+  #schiene .chip { padding:1px 6px; border-radius:999px; background:var(--raised);
+                   color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums }
+  #schiene .chip.warn { color:var(--warn); background:color-mix(in srgb, var(--warn) 16%, transparent) }
+  #schiene .chip:empty { display:none }
+
+  /* Kopfdaten: zwei Felder nebeneinander, wo beide kurz sind. Angebots-Nr. und
+     Datum stehen ohnehin immer zusammen auf dem Angebot.
+
+     `minmax(0,1fr)` und nicht `1fr`: ein `1fr` ist in Wahrheit
+     `minmax(auto,1fr)` und lässt eine Spalte über ihren Anteil hinauswachsen,
+     wenn ihr Inhalt eine Mindestbreite mitbringt. Ein Datumsfeld bringt eine
+     mit — der Browser zeichnet TT.MM.JJJJ und die Kalenderschaltfläche —, und
+     damit war das Datum breiter als die Angebots-Nr. daneben.
+
+     Und `padding-top` ausdrücklich: `.field:first-child { padding-top:0 }` aus
+     app.css meint das erste Feld eines Panels, griff hier aber nur auf das
+     linke der beiden. Die beiden Beschriftungen standen dadurch um 9px
+     versetzt — in einer Zeile, die als Zeile gelesen werden soll. */
+  .paar { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:0 8px }
+  .paar > .field { min-width:0; padding-top:9px }
+  .paar > .field > input { max-width:100% }
+
+  /* ---- Werkzeugleiste ---- */
+  .werkzeug { display:flex; align-items:center; gap:8px; flex-wrap:wrap }
+  .werkzeug .spacer { flex:1 }
+  .schalter { display:flex; align-items:center; gap:6px; color:var(--muted); white-space:nowrap }
+  /* Ohne Preisliste bleiben alle Auswahllisten leer, und man sucht den Grund.
+     Seit die Preisliste in den Einstellungen sitzt, sagt es niemand mehr von
+     selbst — also sagt es die Werkzeugleiste, und ein Klick führt hin. */
+  #ohnePreisliste { border:0; cursor:pointer; font:inherit; font-size:11px }
+  #ohnePreisliste::before { content:"! " }
+
+  /* ---- Postentabelle ----
+     Eine echte <table>: die Spalten müssen über alle Zeilen hinweg fluchten,
+     auch wenn eine Zeile eine Auswahlliste und die nächste nur Text enthält.
+     Mit Flex-Zeilen wäre das eine Sammlung fester Breiten, die beim ersten
+     längeren Produktnamen auseinanderfällt.
+
+     table-layout:fixed, weil die Spaltenbreite sonst vom Inhalt abhinge und
+     die Tabelle bei jedem Tastendruck in einer Mengenspalte neu umbräche. */
+  .tabelle { background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+             overflow:auto; position:relative }
+  table { width:100%; border-collapse:collapse; table-layout:fixed; min-width:900px }
+  /* Der Tabellenkopf bleibt beim Scrollen stehen — bei 200 Posten weiß man
+     sonst in der Mitte nicht mehr, welche Spalte welche ist. */
+  thead th { position:sticky; top:0; z-index:2; background:var(--raised);
+             font-size:11px; font-weight:600; color:var(--muted); text-align:right;
+             padding:7px 6px; border-bottom:1px solid var(--line); white-space:nowrap }
+  thead th.l { text-align:left }
+  thead th .e { display:block; font-weight:400; opacity:.7 }
+  tbody td { padding:2px 6px; border-bottom:1px solid var(--line); vertical-align:middle }
+  tbody tr:last-child td { border-bottom:0 }
+
+  /* Die Eingaben in der Tabelle tragen keinen eigenen Rahmen: 15 umrandete
+     Kästchen je Zeile ergäben ein Gitter im Gitter. Der Rahmen kommt, sobald
+     man das Feld berührt — dann ist er eine Antwort und keine Dekoration. */
+  td input, td select { border-color:transparent; background:none; padding:4px 5px }
+  td input:hover, td select:hover, td input:focus, td select:focus {
+    border-color:var(--field-line); background:var(--sunk) }
+  td .wrap::after { background:none; border-left:0; opacity:0; transition:opacity var(--dur) var(--ease) }
+  td .wrap:hover::after, td .wrap:focus-within::after { opacity:1 }
+
+  /* Errechnete Spalten sind keine Eingabe. Sie bekommen deshalb kein Feld,
+     sondern stehen als Text da — man kann nicht hineinklicken, und das ist
+     die Auskunft. */
+  td.rechnung { text-align:right; font-variant-numeric:tabular-nums; color:var(--muted); padding-inline:11px }
+  td.rechnung.stark { color:var(--ink); font-weight:600 }
+  /* Ein fehlender Preis ist keine Null. */
+  td.rechnung .fehlt { color:var(--warn) }
+  /* Eine Summe, in die Zeilen ohne Preis mit 0,00 € eingehen: sie steht da,
+     weil eine leere Summe unbrauchbar wäre — aber sie ist vorläufig, und das
+     muss man ihr ansehen. */
+  td.rechnung.offen, .summe .gesamt .offen { color:var(--warn) }
+  .summe #offen:empty { display:none }
+
+  /* ---- Positionszeilen ----
+     Die Ebene wird eingerückt UND eingefärbt. Einrückung allein trägt bei drei
+     Ebenen zu wenig, Farbe allein sagt nichts über das Verhältnis. */
+  tr.block > td { background:var(--e3) }
+  tr.block.t1 > td { background:var(--e1) }
+  tr.block.t2 > td { background:var(--e2) }
+  tr.block .titel { display:flex; align-items:center; gap:8px }
+  tr.block .nr { font-variant-numeric:tabular-nums; font-weight:700; flex:none; color:var(--ink) }
+  tr.block input.titelfeld { font-weight:600; flex:1; min-width:0 }
+  tr.block.t1 input.titelfeld { font-size:14px }
+  /* Die Einrückung sitzt an der Zelle, nicht am Text: so rückt auch die
+     Hintergrundfläche mit und die Verschachtelung ist als Stufe zu sehen. */
+  td.ein1 { padding-left:10px } td.ein2 { padding-left:26px } td.ein3 { padding-left:42px }
+  td.ein4 { padding-left:58px }
+
+  tr.zeile td.pos { color:var(--muted); font-variant-numeric:tabular-nums; font-size:12px }
+  /* Zebra nur auf den Materialzeilen: die Positionszeilen haben ihre eigene
+     Fläche, dort wäre ein Streifen eine zweite Aussage über dieselbe Zeile. */
+  tr.zeile:nth-of-type(even) > td { background:var(--zebra) }
+  tr.zeile.frei .beschreibung { font-style:italic }
+  /* Eine Zeile, in der noch etwas fehlt, tritt zurück — sie ist noch keine
+     Position, sondern eine Absicht. Die Felder, die sie zeigt, bleiben voll
+     sichtbar; gedämpft wird nur die Zeile als Ganzes. */
+  tr.zeile.unfertig td { opacity:.75 }
+  tr.zeile.unfertig:focus-within td { opacity:1 }
+
+  /* Ein Preis, der von Hand gesetzt wurde, weicht vom Katalog ab. Das muss man
+     sehen, sonst sucht man den Unterschied später in der Preisliste. */
+  td .eigen { border-color:var(--warn) !important }
+
+  /* Die Aktionsspalte: tritt zurück, bis die Zeile berührt wird. Sonst stünde
+     rechts eine Wand aus Kästchen. */
+  td.tun { text-align:right; width:34px; padding-right:8px }
+  td.tun button { width:24px; height:24px; padding:0; line-height:1; border-color:transparent;
+                  background:none; color:var(--muted); opacity:0;
+                  transition:opacity var(--dur) var(--ease), color var(--dur) var(--ease) }
+  tr:hover td.tun button, td.tun button[aria-expanded=true], td.tun button:focus-visible { opacity:1 }
+  td.tun button:hover, td.tun button[aria-expanded=true] { border-color:var(--field-line); color:var(--ink) }
+  td.tun button::before { content:"⋯"; font-size:15px }
+
+  /* ---- Am rechten Rand haftende Spalten ----
+     Mit eingeblendeten Kalkulationsspalten ist die Tabelle breiter als das
+     Fenster. Gerade dann steht „Gesamt VK“ ganz rechts und wäre beim Tippen
+     in der Mengenspalte nicht zu sehen — also bleibt sie stehen, wie der
+     Spaltenkopf beim senkrechten Scrollen.
+
+     Eine haftende Zelle muss DECKEND sein, sonst scheint durch sie hindurch,
+     was darunter wegscrollt. Deshalb bekommt jede Zeilenart hier ihren Grund
+     noch einmal ausdrücklich — und das Zebra ist eine feste Farbe statt eines
+     durchscheinenden Weiß. */
+  th.haft, td.haft { position:sticky; z-index:1 }
+  td.haft { background:var(--surface) }
+  thead th.haft { z-index:3; background:var(--raised) }
+  tr.zeile:nth-of-type(even) > td.haft { background:var(--zebra) }
+  tr.block > td.haft { background:var(--e3) }
+  tr.block.t1 > td.haft { background:var(--e1) }
+  tr.block.t2 > td.haft { background:var(--e2) }
+  /* Eine Kante, damit man sieht, dass dort etwas stehen bleibt und die Zahlen
+     nicht einfach aneinanderstoßen. */
+  td.haft:first-of-type, th.haft:first-of-type { box-shadow:inset 1px 0 0 var(--line) }
+
+  /* ---- Fußzeile mit der Gesamtsumme ---- */
+  .summe { display:flex; align-items:baseline; gap:14px; padding:9px 14px;
+           background:var(--surface); border:1px solid var(--line); border-radius:var(--r) }
+  .summe .spacer { flex:1 }
+  .summe .teil { color:var(--muted); font-variant-numeric:tabular-nums }
+  .summe .teil b { color:var(--ink); font-weight:600 }
+  .summe .gesamt { font-size:19px; font-weight:700; font-variant-numeric:tabular-nums }
+  .summe .gesamt .lbl { font-size:12px; font-weight:400; color:var(--muted); margin-right:8px }
+</style>
+</head>
+<body>
+
+<aside id="leiste">
+  <section>
+    <h2><span class="title">Angebot</span>
+      <button id="leisteSchalter" type="button" aria-controls="leiste" aria-expanded="true"></button></h2>
+    <div class="field"><label class="t" for="kunde">Kunde</label>
+      <input type="text" id="kunde" data-kopf="kunde" placeholder="Firma, Ansprechpartner"></div>
+    <div class="field"><label class="t" for="projekt">Projekt</label>
+      <input type="text" id="projekt" data-kopf="projekt" placeholder="Bauvorhaben"></div>
+    <div class="paar">
+      <div class="field"><label class="t" for="angebotsNr">Angebots-Nr.</label>
+        <input type="text" id="angebotsNr" data-kopf="angebotsNr"></div>
+      <div class="field"><label class="t" for="datum">Datum</label>
+        <input type="date" id="datum" data-kopf="datum"></div>
+    </div>
+    <div class="field"><label class="t" for="bearbeiter">Bearbeiter</label>
+      <input type="text" id="bearbeiter" data-kopf="bearbeiter"></div>
+  </section>
+
+  <!-- Was auf der eingeklappten Schiene stehen bleibt: die beiden Angaben, die
+       die Leiste verdeckt und die trotzdem jede Zeile betreffen. -->
+  <div id="schiene" aria-hidden="true">
+    <span class="chip" id="schieneZuschlag"></span>
+  </div>
+
+  <section>
+    <h2>Sätze <span class="meta">Vorgabe je Zeile</span></h2>
+    <div class="paar">
+      <div class="field"><label class="t" for="lohnsatz">Lohn <span class="meta">€/h</span></label>
+        <input type="number" id="lohnsatz" step="0.5" min="0"></div>
+      <div class="field"><label class="t" for="zuschlag">Zuschlag <span class="meta">%</span></label>
+        <input type="number" id="zuschlag" step="1"></div>
+    </div>
+  </section>
+
+  <div class="row">
+    <button class="primary" id="speichern">Speichern</button>
+    <button id="dateiMenu" aria-expanded="false" aria-haspopup="menu" title="Datei">Datei ▾</button>
+    <button id="einstellungen" title="Einstellungen: Firmenangaben, Logo, Preisliste">⚙</button>
+  </div>
+</aside>
+
+<main>
+  <div class="werkzeug">
+    <button class="primary" id="neuePos">+ Position</button>
+    <button id="neueZeile">+ Materialzeile</button>
+    <button id="neuerText">+ Freitext</button>
+    <button class="flag warn" id="ohnePreisliste" hidden>Keine Preisliste</button>
+    <span class="spacer"></span>
+    <label class="schalter"><input type="checkbox" id="spalten" checked> Kalkulationsspalten</label>
+    <button id="druckMenu" aria-expanded="false" aria-haspopup="menu">Vorschau ▾</button>
+  </div>
+
+  <div class="tabelle" id="tabelle"></div>
+
+  <div class="summe">
+    <span class="teil">Material <b id="sMat">–</b></span>
+    <span class="teil">Lohn <b id="sLohn">–</b></span>
+    <span class="teil"><b id="sStd">–</b> h</span>
+    <span class="flag" id="offen"></span>
+    <span class="spacer"></span>
+    <span id="status"></span>
+    <span class="spacer"></span>
+    <span class="gesamt"><span class="lbl">Gesamtsumme</span><span id="sGesamt">0,00 €</span></span>
+  </div>
+</main>
+
+<div class="brand">
+  <span id="fassung">Kalkula</span>
+  <span class="spacer"></span>
+  <span id="dateiName">Nicht gespeichert</span>
+</div>
+
+<div class="menu" id="menu" role="menu" hidden></div>
+
+<dialog id="frage">
+  <h3 id="frageTitel"></h3>
+  <div class="body" id="frageText"></div>
+  <div class="foot">
+    <button id="frageNein">Abbrechen</button>
+    <button class="primary" id="frageJa">OK</button>
+  </div>
+</dialog>
+
+<script type="module">
+// Privater Modulimport: nichts von hier hängt am `window`, ein anderes Skript
+// in dieser Seite käme also nicht an `invoke` heran.
+//
+// Das ist Ordnung, keine Absicherung. Was fremdes Skript verhindert, ist die
+// CSP in tauri.conf.json (`script-src 'self'`, kein `unsafe-inline`); die
+// Capabilities begrenzen daneben, was überhaupt zu erreichen wäre.
+import { invoke, listen } from "./vendor/tauri-api.js";
+import { defineMenu, openMenu } from "./menu-ui.js";
+import { katalogLesen, kategorieNeuBauen, nachschlagen } from "./katalog.js";
+import * as R from "./rechnen.js";
+
+// Läuft die Seite in Tauri? Ohne — im Browser geöffnet — funktioniert alles
+// außer Öffnen, Speichern und Drucken. Das ist keine zweite Betriebsart,
+// sondern erlaubt, die Oberfläche ohne Bauschritt anzusehen.
+const imRahmen = !!window.__TAURI_INTERNALS__;
+const ruf = async (befehl, args) => imRahmen ? invoke(befehl, args) : null;
+
+// ---------------------------------------------------------------------------
+// ZUSTAND
+// ---------------------------------------------------------------------------
+let kalk = R.neueKalkulation();
+let katalog = null;       // { datei, kategorien, uebergangen }
+let mappe = null;         // die gelesene Preisliste, für das Katalogfenster
+let dateiId = null;       // Handhabe der geöffneten .kalk-Datei, null = neu
+let dateiName = "";
+let geaendert = false;
+
+const $ = s => document.querySelector(s);
+const el = (tag, klasse) => { const e = document.createElement(tag); if (klasse) e.className = klasse; return e; };
+
+// ---------------------------------------------------------------------------
+// ANZEIGE VON ZAHLEN
+// ---------------------------------------------------------------------------
+// Überall dasselbe Format, und zwar deutsch: die Kalkulation wird in Euro
+// gerechnet und das Angebot auf Deutsch gedruckt.
+const EURO = new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" });
+const ZAHL = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Ein Betrag — oder ein sichtbarer Strich, wenn es keinen gibt. */
+function euro(v) { return v === null || v === undefined ? "–" : EURO.format(v); }
+function zahl(v) { return v === null || v === undefined ? "–" : ZAHL.format(v); }
+
+function melde(text, art = "") {
+  const s = $("#status");
+  s.textContent = text;
+  s.className = art;
+}
+
+// ---------------------------------------------------------------------------
+// TABELLE
+// ---------------------------------------------------------------------------
+// Die Spalten stehen hier einmal und bestimmen Kopf, Breite und Sichtbarkeit.
+// Im abgelösten Makro standen dieselben Angaben an vier Stellen — als
+// Konstanten, im Kopfzeilenbau, in der Breitenschleife und im PDF-Export — und
+// liefen erwartungsgemäß auseinander.
+// Jede Spalte bekommt eine feste Breite. Ein "1fr" gibt es in einer Tabelle
+// nicht, und eine Spalte ohne Breite bekommt bei `table-layout:fixed` genau
+// das, was übrig bleibt — bei eingeblendeten Kalkulationsspalten also nichts.
+// Die Produktspalte ist dann auf null zusammengefallen und der Spaltenkopf
+// unsichtbar gewesen.
+const SPALTEN = [
+  { k: "pos",      t: "Pos.",              e: "",    w: 80,  l: true },
+  { k: "kategorie",t: "Kategorie",         e: "",    w: 148, l: true },
+  { k: "produkt",  t: "Material / Produkt",e: "",    w: 240, l: true },
+  { k: "groesse",  t: "Größe",             e: "",    w: 148, l: true },
+  { k: "menge",    t: "Menge",             e: "#",   w: 72  },
+  { k: "einheit",  t: "Einheit",           e: "",    w: 66  },
+  { k: "ek",       t: "EP EK",             e: "€",   w: 84,  intern: true },
+  { k: "zuschlag", t: "Zuschlag",          e: "%",   w: 68,  intern: true },
+  { k: "epvk",     t: "EP VK",             e: "€",   w: 84,  intern: true },
+  { k: "material", t: "Gesamt Mat.",       e: "€",   w: 94,  intern: true },
+  { k: "stunden",  t: "Stunden",           e: "h",   w: 70,  intern: true },
+  { k: "lohnsatz", t: "Lohn/h",            e: "€/h", w: 74,  intern: true },
+  { k: "lohn",     t: "Gesamt Lohn",       e: "€",   w: 94,  intern: true },
+  { k: "epges",    t: "EP Gesamt",         e: "€",   w: 90  },
+  // Die beiden letzten bleiben beim seitlichen Scrollen am rechten Rand
+  // stehen: die Gesamtsumme einer Position ist die Zahl, auf die man schaut,
+  // und sie stand bei eingeblendeten Kalkulationsspalten außerhalb des
+  // Fensters. Siehe .haft im Stylesheet.
+  { k: "gesamt",   t: "Gesamt VK",         e: "€",   w: 104, haft: 34 },
+  { k: "tun",      t: "",                  e: "",    w: 34,  haft: 0 },
+];
+
+/** Die gerade sichtbaren Spalten. */
+function sichtbar() {
+  const intern = $("#spalten").checked;
+  return SPALTEN.filter(s => intern || !s.intern);
+}
+
+/**
+ * Merkt sich, wo der Fokus stand, und setzt ihn nach dem Neuzeichnen zurück.
+ *
+ * Neu gezeichnet wird, wenn sich die Gliederung ändert oder eine Auswahl die
+ * nächste umstellt — dabei entstehen alle Felder neu, und der Fokus fiele auf
+ * den Seitenanfang zurück. Wiedergefunden wird über Knotenkennung und
+ * Feldnamen, nicht über die Stelle in der Liste: die Zeile kann inzwischen
+ * woanders stehen.
+ */
+function fokusMerken() {
+  const a = document.activeElement;
+  if (!a || !a.dataset || !a.dataset.f || !$("#tabelle").contains(a)) return null;
+  return {
+    id: a.dataset.id, f: a.dataset.f,
+    // Bei einem Textfeld auch die Schreibmarke, sonst spränge sie ans Ende.
+    von: a.selectionStart, bis: a.selectionEnd,
+  };
+}
+
+function fokusZurueck(stand) {
+  if (!stand) return;
+  const e = $(`#tabelle [data-id="${CSS.escape(stand.id)}"][data-f="${CSS.escape(stand.f)}"]`);
+  if (!e) return;
+  e.focus();
+  try { if (stand.von !== null) e.setSelectionRange(stand.von, stand.bis); } catch { /* kein Textfeld */ }
+}
+
+function tabelleZeichnen() {
+  const wo = $("#tabelle");
+  const scrollStand = wo.scrollTop;
+  const fokus = fokusMerken();
+  wo.textContent = "";
+
+  const flach = R.durchlaufen(kalk);
+  if (!flach.length) {
+    const leer = el("div", "empty");
+    const b = el("b"); b.textContent = "Noch keine Position";
+    leer.append(b, textZeile("Eine Kalkulation besteht aus Positionen, und eine Position aus Zeilen."),
+                textZeile("„+ Position“ legt die erste an."));
+    wo.append(leer);
+    summeZeichnen();
+    return;   // kein Fokus wiederherzustellen: es gibt kein Feld mehr
+  }
+
+  const spalten = sichtbar();
+  const tab = el("table");
+  const cols = el("colgroup");
+
+  let breite = 0;
+  for (const s of spalten) {
+    const c = el("col");
+    c.style.width = `${s.w}px`;
+    breite += s.w;
+    cols.append(c);
+  }
+  // Die Tabelle ist so breit wie die Summe ihrer Spalten. Ohne diese Angabe
+  // stauchte `width:100%` die festen Breiten wieder zusammen, sobald das
+  // Fenster schmaler ist — und die Zahlen stünden übereinander.
+  tab.style.minWidth = `${breite}px`;
+  const kopf = el("thead");
+  const kr = el("tr");
+  for (const s of spalten) {
+    const th = el("th", `${s.l ? "l" : ""}${s.haft !== undefined ? " haft" : ""}`.trim());
+    if (s.haft !== undefined) th.style.right = `${s.haft}px`;
+    th.append(document.createTextNode(s.t));
+    if (s.e) { const e = el("span", "e"); e.textContent = s.e; th.append(e); }
+    kr.append(th);
+  }
+  kopf.append(kr);
+
+  const koerper = el("tbody");
+  for (const eintrag of flach) {
+    koerper.append(eintrag.knoten.art === "block"
+      ? blockZeile(eintrag, spalten)
+      : postenZeile(eintrag, spalten));
+  }
+
+  tab.append(cols, kopf, koerper);
+  wo.append(tab);
+  wo.scrollTop = scrollStand;
+  fokusZurueck(fokus);
+  summeZeichnen();
+}
+
+function textZeile(t) { const d = el("div"); d.textContent = t; return d; }
+
+/** Eine Positionszeile: Nummer, Titel, ihre Summe. */
+function blockZeile(eintrag, spalten) {
+  const { knoten, nummer, tiefe } = eintrag;
+  const tr = el("tr", `block t${Math.min(tiefe, 3)}`);
+  tr.dataset.id = knoten.id;
+  const s = R.summe(knoten, kalk);
+
+  for (const sp of spalten) {
+    const td = el("td");
+    if (sp.k === "pos") {
+      // Die Positionszeile zieht Nummer und Titel zu einer Zelle zusammen: ein
+      // Titel, der bei „Kategorie“ anfinge, sähe aus wie eine Materialzeile.
+      td.className = `ein${Math.min(tiefe, 4)}`;
+      td.colSpan = spalten.findIndex(x => x.k === "epges");
+      const d = el("div", "titel");
+      const nr = el("span", "nr"); nr.textContent = nummer;
+      const inp = el("input"); inp.type = "text"; inp.className = "titelfeld";
+      inp.value = knoten.titel;
+      inp.placeholder = tiefe === 1 ? "Hauptposition benennen …" : "Unterposition benennen …";
+      inp.dataset.id = knoten.id; inp.dataset.f = "titel";
+      d.append(nr, inp);
+      td.append(d);
+      tr.append(td);
+      continue;
+    }
+    if (sp.k === "epges") { td.className = "rechnung"; td.textContent = ""; }
+    else if (sp.k === "gesamt") {
+      td.className = "rechnung stark";
+      td.textContent = euro(s.gesamt);
+      // Eine Position, unter der Zeilen ohne Preis hängen, ist nicht fertig
+      // gerechnet. Ihre Summe steht trotzdem da — sie wäre sonst unbrauchbar —,
+      // aber sie ist als vorläufig gekennzeichnet.
+      if (s.offen) {
+        td.classList.add("offen");
+        td.title = `${s.offen} Zeile(n) ohne Preis gehen mit 0,00 € in diese Summe ein.`;
+      }
+    }
+    else if (sp.k === "tun") { td.className = "tun"; td.append(tunKnopf(knoten.id, "block")); }
+    else continue;   // alles links davon steckt schon im colSpan
+    haften(td, sp);
+    tr.append(td);
+  }
+  return tr;
+}
+
+// ---------------------------------------------------------------------------
+// WIE WEIT IST EINE ZEILE?
+// ---------------------------------------------------------------------------
+// Eine frisch angelegte Zeile zeigt nur, was als Nächstes dran ist. Vorher
+// standen fünfzehn Felder da, von denen vierzehn erst dann etwas bedeuten,
+// wenn Kategorie und Material feststehen — Menge wovon, Preis wofür. Das war
+// keine Hilfe, sondern eine Wand.
+//
+// Die Stufen folgen der Kaskade, die es ohnehin gibt:
+//
+//   0 neu        nichts gewählt  → Kategorie ODER Freitext
+//   1 kategorie  Kategorie steht → Material
+//   2 produkt    Material steht  → Größe (nur wenn das Produkt welche führt)
+//   3 fertig     alles da        → Menge, Preise, Stunden
+//
+// Eine Zeile ohne Kategorie ist eine Freitextzeile; sie ist fertig, sobald
+// eine Beschreibung dasteht. Das ist derselbe Unterschied wie in `rechnen.js`
+// — eine zweite Zeilenart gibt es nicht.
+const STAND = { neu: 0, kategorie: 1, produkt: 2, fertig: 3 };
+
+function zeileStand(zeile) {
+  // Steht in der Zeile schon ein Wert, ist sie fertig — ganz gleich, was
+  // darüber fehlt. Sonst verschwänden Menge, Preis oder Stunden aus dem Blick,
+  // bloß weil jemand die Kategorie wieder herausgenommen hat oder eine
+  // gespeicherte Datei ein Feld nicht führt. Eingegebenes wird nicht
+  // versteckt.
+  if (zeile.menge || zeile.stunden || (zeile.ek !== null && zeile.ek !== "")) return STAND.fertig;
+  if (!zeile.kategorie) return String(zeile.text || "").trim() ? STAND.fertig : STAND.neu;
+  if (!zeile.produkt) return STAND.kategorie;
+  return groessenNamen(zeile.kategorie, zeile.produkt).length && !zeile.groesse
+    ? STAND.produkt
+    : STAND.fertig;
+}
+
+// Ab welcher Stufe eine Spalte etwas zeigt. Was hier nicht steht — die
+// Positionsnummer und die Aktionen — steht immer da: die Nummer verortet die
+// Zeile, und über das Menü muss man sie auch wieder loswerden können.
+const ERST_AB = {
+  kategorie: STAND.neu, produkt: STAND.neu, groesse: STAND.produkt,
+  menge: STAND.fertig, einheit: STAND.fertig, ek: STAND.fertig,
+  zuschlag: STAND.fertig, epvk: STAND.fertig, material: STAND.fertig,
+  stunden: STAND.fertig, lohnsatz: STAND.fertig, lohn: STAND.fertig,
+  epges: STAND.fertig, gesamt: STAND.fertig,
+};
+
+/** Eine Material- oder Freitextzeile. */
+function postenZeile(eintrag, spalten) {
+  const { knoten, nummer, tiefe } = eintrag;
+  const frei = R.istFrei(knoten);
+  const stand = zeileStand(knoten);
+  const tr = el("tr", `zeile${frei ? " frei" : ""}${stand < STAND.fertig ? " unfertig" : ""}`);
+  tr.dataset.id = knoten.id;
+  const r = R.zeileRechnen(knoten, kalk);
+
+  for (const sp of spalten) {
+    const td = el("td");
+    // Noch nicht an der Reihe: die Zelle bleibt leer. Sie bleibt aber eine
+    // Zelle — sonst verrutschte die Tabelle um eine Spalte.
+    if (ERST_AB[sp.k] !== undefined && stand < ERST_AB[sp.k]) {
+      if (sp.k === "gesamt") td.className = "rechnung stark";
+      haften(td, sp);
+      tr.append(td);
+      continue;
+    }
+    switch (sp.k) {
+      case "pos":
+        // Nicht eingerückt: die Nummer trägt die Ebene schon in sich
+        // („1.1.1.02"), und eingerückt lief sie aus ihrer Spalte heraus und
+        // über die Kategorie. Eingerückt werden nur die Positionszeilen, deren
+        // Zelle über die halbe Tabelle reicht.
+        td.className = "pos";
+        td.textContent = nummer;
+        break;
+      case "kategorie":
+        td.append(auswahl(knoten, "kategorie", kategorieNamen(), "— Freitext —"));
+        break;
+      case "produkt":
+        if (frei) {
+          const inp = feld(knoten, "text", "text");
+          inp.className = "beschreibung";
+          inp.placeholder = "Beschreibung …";
+          td.append(inp);
+        } else {
+          td.append(auswahl(knoten, "produkt", produktNamen(knoten.kategorie), "— wählen —"));
+        }
+        break;
+      case "groesse": {
+        const groessen = groessenNamen(knoten.kategorie, knoten.produkt);
+        if (frei || !groessen.length) {
+          const leer = el("span", "rechnung"); leer.textContent = "";
+          td.append(leer);
+        } else {
+          td.append(auswahl(knoten, "groesse", groessen, "— wählen —"));
+        }
+        break;
+      }
+      case "menge":   td.append(feld(knoten, "menge", "number", { step: "any", min: "0" })); break;
+      case "einheit": td.append(feld(knoten, "einheit", "text")); break;
+      case "ek": {
+        const inp = feld(knoten, "ek", "number", { step: "any" });
+        if (knoten.ekEigen) inp.classList.add("eigen");
+        inp.title = ekTitel(knoten);
+        td.append(inp);
+        break;
+      }
+      case "zuschlag": {
+        // Im Modell ist der Zuschlag ein Anteil (0,15), im Feld Prozent (15).
+        // Die Umrechnung sitzt hier und nur hier.
+        const inp = el("input"); inp.type = "number"; inp.step = "1";
+        inp.dataset.id = knoten.id; inp.dataset.f = "zuschlag";
+        inp.value = knoten.zuschlag === null ? "" : Math.round(knoten.zuschlag * 1000) / 10;
+        inp.placeholder = String(Math.round((kalk.zuschlag || 0) * 1000) / 10);
+        inp.title = "Leer: der Satz der Kalkulation gilt.";
+        td.append(inp);
+        break;
+      }
+      case "epvk":     td.className = "rechnung"; td.append(betrag(r.epVk)); break;
+      case "material": td.className = "rechnung"; td.append(betrag(r.material)); break;
+      case "stunden":  td.append(feld(knoten, "stunden", "number", { step: "any", min: "0" })); break;
+      case "lohnsatz": {
+        const inp = feld(knoten, "lohnsatz", "number", { step: "0.5", min: "0" });
+        inp.placeholder = String(kalk.lohnsatz ?? "");
+        inp.title = "Leer: der Satz der Kalkulation gilt.";
+        td.append(inp);
+        break;
+      }
+      case "epges":  td.className = "rechnung"; td.append(betrag(r.epGesamt)); break;
+      case "gesamt": td.className = "rechnung stark"; td.append(betrag(r.gesamt)); break;
+      case "tun":    td.className = "tun"; td.append(tunKnopf(knoten.id, "zeile")); break;
+    }
+    haften(td, sp);
+    tr.append(td);
+  }
+  return tr;
+}
+
+/** Heftet eine Zelle an den rechten Rand, wenn ihre Spalte das vorsieht. */
+function haften(td, sp) {
+  if (sp.haft === undefined) return;
+  td.classList.add("haft");
+  td.style.right = `${sp.haft}px`;
+}
+
+/** Ein Betrag als Text — fehlt er, steht dort ein warnender Strich. */
+function betrag(v) {
+  const s = el("span", v === null || v === undefined ? "fehlt" : "");
+  s.textContent = euro(v);
+  if (v === null || v === undefined) s.title = "Kein Preis hinterlegt.";
+  return s;
+}
+
+/** Ein Eingabefeld, an Knoten und Feldnamen gebunden. */
+function feld(knoten, name, typ, attr = {}) {
+  const inp = el("input");
+  inp.type = typ;
+  for (const [k, v] of Object.entries(attr)) inp.setAttribute(k, v);
+  inp.dataset.id = knoten.id;
+  inp.dataset.f = name;
+  const wert = knoten[name];
+  inp.value = wert === null || wert === undefined ? "" : String(wert);
+  return inp;
+}
+
+/** Eine Auswahlliste, an Knoten und Feldnamen gebunden. */
+function auswahl(knoten, name, werte, leerText) {
+  const w = el("div", "wrap");
+  const sel = el("select");
+  sel.dataset.id = knoten.id;
+  sel.dataset.f = name;
+  const leer = el("option"); leer.value = ""; leer.textContent = leerText;
+  sel.append(leer);
+  for (const v of werte) {
+    const o = el("option"); o.value = v; o.textContent = v;
+    sel.append(o);
+  }
+  // Ein Wert, den es im Katalog nicht (mehr) gibt, darf nicht stillschweigend
+  // verschwinden: er kommt als eigener Eintrag dazu und wird als fremd
+  // gekennzeichnet. Sonst stünde nach einem Preislistenwechsel plötzlich
+  // „— wählen —“, und niemand wüsste, was dort einmal stand.
+  const wert = knoten[name] || "";
+  if (wert && !werte.includes(wert)) {
+    const o = el("option"); o.value = wert; o.textContent = `${wert}  (nicht in der Preisliste)`;
+    sel.append(o);
+  }
+  sel.value = wert;
+  // Die Spalte ist schmaler als mancher Produktname aus der Preisliste
+  // („Ventiltechnik (nur Montage) Membranventil pneum.Antrieb"). Der volle
+  // Name steht deshalb im Tooltip, und die aufgeklappte Liste zeigt ihn
+  // ohnehin vollständig.
+  sel.title = wert || "";
+  if (!werte.length && !wert) sel.disabled = true;
+  w.append(sel);
+  return w;
+}
+
+function tunKnopf(id, art) {
+  const b = el("button");
+  b.type = "button";
+  b.dataset.tun = id;
+  b.dataset.art = art;
+  b.setAttribute("aria-expanded", "false");
+  b.setAttribute("aria-haspopup", "menu");
+  b.title = "Weitere Aktionen";
+  return b;
+}
+
+function summeZeichnen() {
+  // Ohne Position gibt es nichts vorzuführen. Der Knopf tritt dann zurück,
+  // statt auf den Klick hin eine Fehlermeldung zu zeigen — eine Schaltfläche,
+  // die nur sagen kann „geht gerade nicht", hätte man besser gar nicht erst
+  // anbieten sollen.
+  const leer = !kalk.posten.length;
+  $("#druckMenu").disabled = leer;
+  $("#druckMenu").title = leer ? "Noch keine Position — es gibt nichts anzuzeigen." : "";
+
+  const s = R.gesamtsumme(kalk);
+  $("#sMat").textContent = euro(s.material);
+  $("#sLohn").textContent = euro(s.lohn);
+  $("#sStd").textContent = zahl(s.stunden);
+  $("#sGesamt").textContent = euro(s.gesamt);
+  const g = $("#sGesamt");
+  g.classList.toggle("offen", s.offen > 0);
+  g.title = s.offen ? `${s.offen} Zeile(n) ohne Preis gehen mit 0,00 € ein.` : "";
+  $("#offen").textContent = s.offen ? `${s.offen} ohne Preis` : "";
+}
+
+// ---------------------------------------------------------------------------
+// KATALOG NACHSCHLAGEN
+// ---------------------------------------------------------------------------
+function kategorieNamen() { return katalog ? katalog.kategorien.map(k => k.name) : []; }
+
+function produktNamen(kategorie) {
+  const k = katalog?.kategorien.find(x => x.name === kategorie);
+  return k ? k.produkte.map(p => p.name) : [];
+}
+
+function groessenNamen(kategorie, produkt) {
+  const t = katalog ? nachschlagen(katalog, kategorie, produkt, "") : null;
+  if (!t) return [];
+  // Ein Produkt mit genau einer namenlosen Größe hat keine Größenwahl.
+  const g = t.produkt.groessen;
+  return g.length === 1 && !g[0].name ? [] : g.map(x => x.name);
+}
+
+/**
+ * Was die Preisliste für diese Zeile nennt — oder null, wenn sie nichts dazu
+ * sagt: keine Liste geladen, Produkt nicht gefunden, Größe nicht gewählt oder
+ * schlicht kein Wert hinterlegt.
+ */
+function katalogPreis(zeile) {
+  if (!katalog || !zeile.kategorie || !zeile.produkt) return null;
+  const treffer = nachschlagen(katalog, zeile.kategorie, zeile.produkt, zeile.groesse);
+  if (!treffer || !treffer.groesse) return null;
+  // Eine Stundenspalte nennt Montagezeit, keine Materialkosten; `ausKatalog`
+  // setzt den Einkaufspreis dort auf 0. Das muss die Erklärung sagen können —
+  // „Preisliste: 0,00 €" läse sich sonst, als stünde dort eine Null.
+  if (treffer.produkt.istStunden) return { wert: 0, istStunden: true };
+  if (treffer.groesse.wert === null) return null;
+  return { wert: treffer.groesse.wert, istStunden: false };
+}
+
+/**
+ * Die Erklärung am EK-Feld.
+ *
+ * Steht dort ein eigener Wert, gehört der Vergleichswert dazu: wer von der
+ * Preisliste abweicht, will beim Nachsehen wissen, wovon — und um wie viel.
+ * Ohne die Zahl müsste man die Preisliste daneben aufschlagen.
+ */
+function ekTitel(zeile) {
+  if (!zeile.ekEigen) {
+    return "Aus der Preisliste. Ein eigener Wert bleibt bei einem Wechsel der Größe stehen.";
+  }
+  const ausListe = katalogPreis(zeile);
+  if (ausListe === null) {
+    return "Von Hand gesetzt. Die Preisliste führt für diese Zeile keinen Preis.";
+  }
+  if (ausListe.istStunden) {
+    return "Von Hand gesetzt. Diese Spalte der Preisliste nennt Montagezeit, "
+      + "keinen Materialpreis — von dort käme 0,00 €.";
+  }
+  const eigen = zeile.ek === null || zeile.ek === "" ? null : Number(zeile.ek);
+  if (eigen === null || !Number.isFinite(eigen)) {
+    return `Von Hand geleert. Die Preisliste nennt ${euro(ausListe.wert)}.`;
+  }
+  // Der Wert aus der Liste steht immer dabei, die Abweichung nur, wenn es eine
+  // gibt: ein „(±0,00 €)" wäre Lärm. Eine eigene Meldung für den Fall, dass
+  // von Hand derselbe Wert eingetragen wurde, gibt es nicht — der Unterschied
+  // trägt nichts.
+  const abweichung = eigen - ausListe.wert;
+  const delta = Math.abs(abweichung) < 0.005
+    ? ""
+    : `  (${abweichung > 0 ? "+" : "−"}${euro(Math.abs(abweichung))})`;
+  return `Von Hand gesetzt. Preisliste: ${euro(ausListe.wert)}${delta}.`;
+}
+
+// ---------------------------------------------------------------------------
+// EINGABEN ENTGEGENNEHMEN
+// ---------------------------------------------------------------------------
+// Ein einziger Zuhörer für die ganze Tabelle. Die Zeilen werden bei jeder
+// Änderung neu gezeichnet; einzeln angeheftete Zuhörer wären mit dem nächsten
+// Zeichnen weg und müssten jedes Mal neu gesetzt werden.
+
+$("#tabelle").addEventListener("input", e => {
+  const ziel = e.target;
+  if (!ziel.dataset.f) return;
+  const t = R.finden(kalk, ziel.dataset.id);
+  if (!t) return;
+  const k = t.knoten;
+  const f = ziel.dataset.f;
+  const standVorher = k.art === "zeile" ? zeileStand(k) : null;
+
+  // Während getippt wird, nur den Wert übernehmen und die Summen nachziehen —
+  // nicht die ganze Tabelle neu zeichnen. Das zöge den Fokus aus dem Feld, in
+  // dem gerade jemand steht.
+  if (f === "titel" || f === "text" || f === "einheit") { k[f] = ziel.value; }
+  else if (f === "zuschlag" || f === "lohnsatz") {
+    k[f] = ziel.value === "" ? null : Number(ziel.value) / (f === "zuschlag" ? 100 : 1);
+  }
+  else if (f === "ek") {
+    k.ek = ziel.value === "" ? null : Number(ziel.value);
+    // Ab jetzt gehört der Preis dem Bearbeiter.
+    k.ekEigen = true;
+    ziel.classList.add("eigen");
+    // Die Abweichung ändert sich mit jedem Tastendruck, also auch die
+    // Erklärung. Neu gezeichnet wird dafür nichts.
+    ziel.title = ekTitel(k);
+  }
+  else if (f === "menge") { k.menge = Number(ziel.value) || 0; R.mengeGeaendert(k); }
+  else if (f === "stunden") {
+    k.stunden = Number(ziel.value) || 0;
+    // Eine von Hand gesetzte Zeit soll die Menge nicht mehr überschreiben.
+    k.stundenJeEinheit = null;
+  }
+  else return;
+
+  aendern();
+
+  // Das erste Zeichen einer Beschreibung macht aus der leeren Zeile eine
+  // Freitextzeile — dann erscheinen Menge, Preis und der Rest. Genau dann muss
+  // einmal neu gezeichnet werden, und nur dann; bei jedem Tastendruck wäre es
+  // Verschwendung. `tabelleZeichnen` merkt sich Feld und Schreibmarke, die
+  // Eingabe läuft also weiter, als wäre nichts gewesen.
+  if (standVorher !== null && zeileStand(k) !== standVorher) { tabelleZeichnen(); return; }
+
+  zeileNachziehen(ziel.closest("tr"), k);
+});
+
+$("#tabelle").addEventListener("change", e => {
+  const ziel = e.target;
+  if (ziel.tagName !== "SELECT" || !ziel.dataset.f) return;
+  const t = R.finden(kalk, ziel.dataset.id);
+  if (!t) return;
+  const k = t.knoten;
+  const f = ziel.dataset.f;
+  k[f] = ziel.value;
+
+  // Die Kaskade: eine Wahl weiter oben macht die darunter ungültig. Im Makro
+  // hing das an drei ineinandergreifenden Change-Ereignissen von ActiveX-
+  // Steuerelementen, die nach jedem Speichern neu verdrahtet werden mussten
+  // (`WakeUpAllComboboxes`). Hier ist es eine Zuweisung.
+  if (f === "kategorie") { k.produkt = ""; k.groesse = ""; }
+  if (f === "produkt") { k.groesse = ""; }
+
+  preisHolen(k);
+  aendern();
+  tabelleZeichnen();
+
+  // Auf das Feld springen, das jetzt an der Reihe ist. Die Kaskade ist eine
+  // Reihenfolge; wer sie durchläuft, soll das nächste Feld nicht suchen
+  // müssen — und es ist gerade erst erschienen.
+  const weiter = f === "kategorie" ? "produkt"
+    : f === "produkt" ? (groessenNamen(k.kategorie, k.produkt).length ? "groesse" : "menge")
+    : f === "groesse" ? "menge"
+    : null;
+  if (weiter) fokus(k.id, weiter);
+});
+
+/**
+ * Holt Preis und Einheit aus dem Katalog, sobald die Wahl vollständig ist.
+ * Unvollständig heißt: nichts überschreiben — sonst stünde beim Wechsel der
+ * Kategorie kurzzeitig ein Preis da, der zum neuen Produkt nicht gehört.
+ */
+function preisHolen(zeile) {
+  if (!katalog || !zeile.kategorie || !zeile.produkt) return;
+  const treffer = nachschlagen(katalog, zeile.kategorie, zeile.produkt, zeile.groesse);
+  if (!treffer) return;
+  const brauchtGroesse = treffer.produkt.groessen.length > 1
+    || (treffer.produkt.groessen.length === 1 && treffer.produkt.groessen[0].name);
+  if (brauchtGroesse && !treffer.groesse) return;
+  R.ausKatalog(zeile, treffer);
+}
+
+/** Zieht die errechneten Zellen einer Zeile nach, ohne sie neu zu bauen. */
+function zeileNachziehen(tr, knoten) {
+  if (!tr) return;
+  // An einer Positionszeile lässt sich nur der Titel eingeben, und der ändert
+  // an den Zahlen nichts. Hier stand vollständiges Neuzeichnen — das zerstörte
+  // das Feld, in dem gerade getippt wurde, und der Fokus war nach dem ersten
+  // Zeichen weg.
+  if (knoten.art === "block") return;
+  const spalten = sichtbar();
+  const r = R.zeileRechnen(knoten, kalk);
+  const setz = (k, wert) => {
+    const i = spalten.findIndex(s => s.k === k);
+    if (i < 0) return;
+    const td = tr.children[i];
+    if (td) { td.textContent = ""; td.append(betrag(wert)); }
+  };
+  setz("epvk", r.epVk);
+  setz("material", r.material);
+  setz("epges", r.epGesamt);
+  setz("gesamt", r.gesamt);
+  // Eine Zeile mit Katalogstunden zieht ihre Stundenzahl mit der Menge nach.
+  const si = spalten.findIndex(s => s.k === "stunden");
+  const sf = si >= 0 && tr.children[si] ? tr.children[si].querySelector("input") : null;
+  if (sf && document.activeElement !== sf) sf.value = String(knoten.stunden ?? "");
+  // Alle Positionszeilen darüber tragen Summen, die sich mitverändert haben.
+  blockSummenNachziehen();
+  summeZeichnen();
+}
+
+function blockSummenNachziehen() {
+  const spalten = sichtbar();
+  const i = spalten.findIndex(s => s.k === "gesamt");
+  if (i < 0) return;
+  for (const tr of $("#tabelle").querySelectorAll("tr.block")) {
+    const t = R.finden(kalk, tr.dataset.id);
+    if (!t) continue;
+    // Die Positionszeile hat nur vier Zellen: Titel (colSpan), EP Gesamt,
+    // Gesamt VK, Aktionen. Die Summe steht in der vorletzten.
+    const td = tr.children[tr.children.length - 2];
+    if (!td) continue;
+    const s = R.summe(t.knoten, kalk);
+    td.textContent = euro(s.gesamt);
+    // Die Markierung muss mit: eine Zeile, die gerade ihren Preis bekommen
+    // hat, macht die Summe darüber wieder vollständig — ohne das hier bliebe
+    // sie bis zum nächsten vollständigen Zeichnen als vorläufig markiert.
+    td.classList.toggle("offen", s.offen > 0);
+    td.title = s.offen ? `${s.offen} Zeile(n) ohne Preis gehen mit 0,00 € in diese Summe ein.` : "";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// KOPFDATEN UND SÄTZE
+// ---------------------------------------------------------------------------
+for (const inp of document.querySelectorAll("[data-kopf]")) {
+  inp.addEventListener("input", () => { kalk.kopf[inp.dataset.kopf] = inp.value; aendern(); });
+}
+$("#lohnsatz").addEventListener("input", e => {
+  kalk.lohnsatz = e.target.value === "" ? 0 : Number(e.target.value);
+  aendern(); tabelleZeichnen();
+});
+$("#zuschlag").addEventListener("input", e => {
+  kalk.zuschlag = e.target.value === "" ? 0 : Number(e.target.value) / 100;
+  aendern(); tabelleZeichnen(); schieneZeichnen();
+});
+$("#spalten").addEventListener("change", tabelleZeichnen);
+
+// ---------------------------------------------------------------------------
+// SEITENLEISTE EINKLAPPEN
+// ---------------------------------------------------------------------------
+// Wie in docfill: unterhalb einer Breite reicht der Platz nicht mehr für
+// Leiste und Tabelle nebeneinander; die Leiste klappt dann von selbst ein und
+// beim Überschreiten der Grenze wieder aus. Dazwischen gilt, was zuletzt
+// geklickt wurde.
+//
+// Die Grenze liegt hier höher als dort (1100 statt 820 px), weil die Tabelle
+// mit eingeblendeten Kalkulationsspalten rund 950 px braucht — darunter
+// scrollt sie ohnehin, und dann sind die 330 px der Leiste besser angelegt.
+const SCHMAL = window.matchMedia("(max-width: 1100px)");
+const leisteSchalter = $("#leisteSchalter");
+
+function leisteSetzen(zu) {
+  document.body.dataset.leiste = zu ? "zu" : "offen";
+  leisteSchalter.setAttribute("aria-expanded", String(!zu));
+  const text = zu ? "Seitenleiste ausklappen" : "Seitenleiste einklappen";
+  leisteSchalter.title = text;
+  leisteSchalter.setAttribute("aria-label", text);
+}
+leisteSchalter.addEventListener("click", () => leisteSetzen(document.body.dataset.leiste !== "zu"));
+SCHMAL.addEventListener("change", e => leisteSetzen(e.matches));
+leisteSetzen(SCHMAL.matches);
+
+/**
+ * Die Schiene zeigt, was die eingeklappte Leiste verdeckt und trotzdem jede
+ * Zeile betrifft: den Zuschlagssatz. Er multipliziert stillschweigend jeden
+ * Einkaufspreis. Die fehlende Preisliste meldet die Werkzeugleiste, die auch
+ * eingeklappt sichtbar bleibt.
+ */
+function schieneZeichnen() {
+  const proz = Math.round((kalk.zuschlag || 0) * 1000) / 10;
+  const z = $("#schieneZuschlag");
+  z.textContent = `${proz} %`;
+  z.title = `Zuschlag ${proz} % — gilt, wo die Zeile nichts eigenes sagt.`;
+}
+
+// Der Absender gehört nicht in die Kalkulation, sondern zum Programm: er ist
+// bei jedem Angebot derselbe. Er wird deshalb in den Einstellungen abgelegt
+// und nicht in der Datei — sonst müsste man ihn in jeder neuen Kalkulation
+// wieder eintippen, und eine weitergegebene Datei trüge ihn mit sich herum.
+const VORGABE_KOPF = "AAR GmbH\nEhlegrund 15  |  D-39114 Magdeburg\nmail@aar-gmbh.de  |  www.aar-gmbh.de";
+const VORGABE_FUSS = "AAR GmbH  |  Ehlegrund 15, D-39114 Magdeburg  |  mail@aar-gmbh.de";
+
+/** Liest eine Einstellung und legt beim allerersten Mal die Vorgabe ab. */
+async function einstellung(schluessel, vorgabe) {
+  const wert = await invoke("settings_get", { schluessel });
+  if (wert !== null && wert !== undefined) return wert;
+  await invoke("settings_set", { schluessel, wert: vorgabe });
+  return vorgabe;
+}
+
+function kopfZeichnen() {
+  for (const inp of document.querySelectorAll("[data-kopf]")) inp.value = kalk.kopf[inp.dataset.kopf] ?? "";
+  $("#lohnsatz").value = kalk.lohnsatz ?? "";
+  $("#zuschlag").value = Math.round((kalk.zuschlag || 0) * 1000) / 10;
+  schieneZeichnen();
+}
+
+// ---------------------------------------------------------------------------
+// POSTEN ANLEGEN UND UMBAUEN
+// ---------------------------------------------------------------------------
+
+/**
+ * Wohin eine neue Zeile gehört: in die Position, in der zuletzt etwas
+ * geschah. Ohne diese Merkung landete jede neue Zeile ganz unten, und bei
+ * einer langen Kalkulation müsste man sie jedes Mal an ihren Platz schieben.
+ */
+let letzterBlock = null;
+
+function zielBlock() {
+  if (letzterBlock && R.finden(kalk, letzterBlock)) return letzterBlock;
+  const flach = R.durchlaufen(kalk).filter(e => e.knoten.art === "block");
+  return flach.length ? flach[flach.length - 1].knoten.id : null;
+}
+
+$("#neuePos").addEventListener("click", () => {
+  const b = R.einfuegen(kalk, R.neuerBlock());
+  letzterBlock = b.id;
+  aendern(); tabelleZeichnen(); fokus(b.id, "titel");
+});
+
+$("#neueZeile").addEventListener("click", () => zeileAnlegen(false));
+$("#neuerText").addEventListener("click", () => zeileAnlegen(true));
+
+function zeileAnlegen(frei) {
+  const ziel = zielBlock();
+  if (!ziel) {
+    // Eine Zeile ohne Position hinge in der Luft: die Gliederung ist der Zweck
+    // des Programms. Also legen wir die Position gleich mit an, statt eine
+    // Fehlermeldung zu zeigen.
+    const b = R.einfuegen(kalk, R.neuerBlock());
+    letzterBlock = b.id;
+  }
+  const z = R.neueZeile(frei ? {} : { zuschlag: null });
+  R.einfuegen(kalk, z, { inId: zielBlock() });
+  aendern(); tabelleZeichnen();
+  fokus(z.id, frei ? "text" : "kategorie");
+}
+
+function fokus(id, feldName) {
+  const e = $(`#tabelle [data-id="${CSS.escape(id)}"][data-f="${feldName}"]`);
+  if (e) { e.focus(); if (e.select) e.select(); }
+}
+
+// ---------------------------------------------------------------------------
+// MENÜS
+// ---------------------------------------------------------------------------
+// Es gibt genau ein Menü-Element in der Seite — es muss am <body> hängen, weil
+// die Tabelle scrollt und es innerhalb abgeschnitten würde. Drei Auslöser
+// benutzen es: die Zeilen, die Datei-Schaltfläche und der Druck. Welcher es
+// geöffnet hat, sagt `arg`; ein Objekt und keine Zeichenkette, damit eine
+// Knotenkennung nicht zufällig „datei“ heißen kann.
+const menu = defineMenu($("#menu"), (aktion, arg) => {
+  if (!arg) return;
+  if (arg.typ === "datei") return dateiAktion(aktion);
+  if (arg.typ === "druck") return drucken(Number(aktion));
+  return menuAktion(aktion, arg.id);
+});
+
+/** Füllt das Menü mit Einträgen. `aus` macht einen unanwählbar. */
+function menuPunkte(punkte) {
+  const m = $("#menu");
+  m.textContent = "";
+  for (const p of punkte) {
+    if (p === "-") { m.append(el("hr")); continue; }
+    const b = el("button", p.gefahr ? "danger" : "");
+    b.type = "button";
+    b.dataset.a = p.a;
+    b.textContent = p.t;
+    b.disabled = !!p.aus;
+    if (p.titel) b.title = p.titel;
+    m.append(b);
+  }
+}
+
+$("#tabelle").addEventListener("click", e => {
+  const b = e.target.closest("button[data-tun]");
+  if (!b) return;
+  const id = b.dataset.tun;
+  letzterBlock = b.dataset.art === "block" ? id : (R.finden(kalk, id)?.eltern?.id ?? letzterBlock);
+  const r = b.getBoundingClientRect();
+  menuFuellen(b.dataset.art, id);
+  openMenu(menu, r.right, r.bottom + 4, {
+    arg: { typ: "zeile", id }, right: true,
+    trigger: () => $(`#tabelle button[data-tun="${CSS.escape(id)}"]`),
+  });
+});
+
+function menuFuellen(art, id) {
+  const tiefe = R.tiefeVon(kalk, id);
+  const punkte = [];
+  if (art === "block") {
+    punkte.push(
+      { a: "unterpos", t: "+ Unterposition", aus: tiefe >= R.MAX_TIEFE,
+        titel: tiefe >= R.MAX_TIEFE ? `Tiefer als ${R.MAX_TIEFE} Ebenen wird nicht gegliedert.` : "" },
+      { a: "zeile", t: "+ Materialzeile" },
+      { a: "text", t: "+ Freitextzeile" },
+      "-");
+  }
+  punkte.push({ a: "hoch", t: "Nach oben" }, { a: "runter", t: "Nach unten" });
+  if (art === "zeile") punkte.push({ a: "doppeln", t: "Duplizieren" });
+  punkte.push("-", { a: "loeschen", t: "Löschen", gefahr: true });
+  menuPunkte(punkte);
+}
+
+function menuAktion(aktion, id) {
+  const t = R.finden(kalk, id);
+  if (!t) return;
+  switch (aktion) {
+    case "unterpos": {
+      const b = R.neuerBlock();
+      t.knoten.kinder.push(b);
+      letzterBlock = b.id;
+      aendern(); tabelleZeichnen(); fokus(b.id, "titel");
+      return;
+    }
+    case "zeile": case "text": {
+      const z = R.neueZeile();
+      t.knoten.kinder.push(z);
+      letzterBlock = id;
+      aendern(); tabelleZeichnen(); fokus(z.id, aktion === "text" ? "text" : "kategorie");
+      return;
+    }
+    case "hoch":   if (R.schieben(kalk, id, -1)) { aendern(); tabelleZeichnen(); } return;
+    case "runter": if (R.schieben(kalk, id, +1)) { aendern(); tabelleZeichnen(); } return;
+    case "doppeln": {
+      const kopie = { ...t.knoten, id: R.neueId() };
+      R.einfuegen(kalk, kopie, { nachId: id });
+      aendern(); tabelleZeichnen();
+      return;
+    }
+    case "loeschen": loeschen(t.knoten); return;
+  }
+}
+
+async function loeschen(knoten) {
+  const kinder = R.zaehlen(knoten);
+  // Nur nachfragen, wenn etwas verloren gehen kann. Eine leere Position
+  // wegzuklicken ist keine Entscheidung, die eine Rückfrage verdient — und
+  // eine Rückfrage, die immer kommt, wird immer weggeklickt.
+  if (kinder > 0) {
+    const ja = await fragen("Position löschen?",
+      `„${knoten.titel || "Ohne Titel"}“ und ${kinder} darunterliegende Zeile(n) werden entfernt.`,
+      "Löschen");
+    if (!ja) return;
+  }
+  R.entfernen(kalk, knoten.id);
+  aendern(); tabelleZeichnen();
+}
+
+// ---------------------------------------------------------------------------
+// RÜCKFRAGE
+// ---------------------------------------------------------------------------
+// Ein <dialog> statt confirm(): der Browserdialog hielte den Webview an und
+// sähe auf jedem Betriebssystem anders aus.
+let frageLoesen = null;
+function fragen(titel, text, knopf = "OK") {
+  $("#frageTitel").textContent = titel;
+  $("#frageText").textContent = text;
+  $("#frageJa").textContent = knopf;
+  $("#frage").showModal();
+  return new Promise(loesen => { frageLoesen = loesen; });
+}
+$("#frageJa").addEventListener("click", () => { $("#frage").close(); frageLoesen?.(true); });
+$("#frageNein").addEventListener("click", () => { $("#frage").close(); frageLoesen?.(false); });
+$("#frage").addEventListener("cancel", () => frageLoesen?.(false));
+
+// ---------------------------------------------------------------------------
+// PREISLISTE
+// ---------------------------------------------------------------------------
+function katalogZeigen() {
+  if (!katalog) { melde("Es ist keine Preisliste geladen.", "error"); return; }
+  ruf("open_catalog_window", { payload: JSON.stringify(katalogBericht()) })
+    .catch(e => melde(String(e), "error"));
+}
+
+$("#einstellungen").addEventListener("click", () => {
+  ruf("open_settings_window", { payload: JSON.stringify(einstellungenStand()) })
+    .catch(e => melde(String(e), "error"));
+});
+$("#ohnePreisliste").addEventListener("click", () => $("#einstellungen").click());
+
+// Das Einstellungsfenster kann die Preisliste nicht selbst lesen — eine
+// Tabelle wird an genau einer Stelle ausgewertet, und das ist hier. Es bittet
+// deshalb, und der neue Stand geht als Ereignis zurück.
+listen("kalkula://einstellungen", e => {
+  let d;
+  try { d = JSON.parse(e.payload); } catch { return; }
+  if (d.aktion === "preisliste") katalogWaehlen();
+  else if (d.aktion === "nachsehen") katalogZeigen();
+});
+
+/** Was das Katalogfenster zeigt: je Kategorie, was erkannt wurde. */
+function katalogBericht() {
+  return {
+    datei: katalog.datei,
+    uebergangen: katalog.uebergangen,
+    kategorien: katalog.kategorien.map(k => ({
+      name: k.name,
+      schema: k.schema,
+      hinweise: k.hinweise,
+      produkte: k.produkte.length,
+      groessen: k.produkte[0]?.groessen.length ?? 0,
+      werte: k.produkte.reduce((n, p) => n + p.groessen.filter(g => g.wert !== null).length, 0),
+      felder: k.produkte.reduce((n, p) => n + p.groessen.length, 0),
+      beispiele: k.produkte.slice(0, 40).map(p => ({
+        name: p.name, einheit: p.einheit, istStunden: p.istStunden,
+        werte: p.groessen.filter(g => g.wert !== null).length,
+      })),
+    })),
+  };
+}
+
+// Das Katalogfenster schickt ein von Hand korrigiertes Schema zurück. Nur die
+// betroffene Kategorie wird neu gebaut — die übrigen sind unberührt, und ein
+// vollständiges Neulesen der Datei würde die Zuordnung in bereits erfassten
+// Zeilen unnötig durcheinanderbringen.
+listen("kalkula://katalog", e => {
+  if (!katalog || !mappe) return;
+  let bericht;
+  try { bericht = JSON.parse(e.payload); } catch { return; }
+  try {
+    const neu = kategorieNeuBauen(mappe, bericht.blatt, bericht.schema);
+    const i = katalog.kategorien.findIndex(k => k.name === bericht.blatt);
+    if (i < 0) return;
+    katalog.kategorien[i] = neu;
+    katalogZeichnen();
+    tabelleZeichnen();
+    melde(neu.hinweise.length
+      ? `„${neu.name}“ neu gelesen — ${neu.hinweise.join(" ")}`
+      : `„${neu.name}“ neu gelesen: ${neu.produkte.length} Produkte.`,
+      neu.hinweise.length ? "" : "ok");
+    // Das Katalogfenster zeigt noch den alten Stand; es bekommt den neuen.
+    ruf("catalog_refresh", { payload: JSON.stringify(katalogBericht()) });
+  } catch (fehler) {
+    melde(`„${bericht.blatt}“: ${fehler?.message ?? fehler}`, "error");
+  }
+});
+
+async function katalogWaehlen() {
+  if (!imRahmen) { melde("Ohne Tauri lässt sich keine Datei öffnen.", "error"); return; }
+  try {
+    melde("Preisliste wird gelesen …");
+    const d = await invoke("pick_catalog");
+    if (!d) { melde(""); return; }
+    await katalogUebernehmen(new Uint8Array(d.bytes), d.name, d.pfad);
+  } catch (e) {
+    melde(String(e?.message ?? e), "error");
+  }
+}
+
+async function katalogUebernehmen(bytes, name, pfad) {
+  katalog = await katalogLesen(bytes, name);
+  mappe = katalog.mappe;
+  kalk.katalogDatei = name;
+  if (pfad) await ruf("catalog_remember", { pfad });
+  katalogZeichnen();
+  tabelleZeichnen();
+  const auffaellig = katalog.kategorien.filter(k => k.hinweise.length).length;
+  const text = auffaellig
+    ? `${katalog.kategorien.length} Kategorien gelesen, ${auffaellig} mit Hinweisen — „Nachsehen“.`
+    : `${katalog.kategorien.length} Kategorien gelesen.`;
+  const art = auffaellig ? "" : "ok";
+  melde(text, art);
+  // Das Einstellungsfenster hat die Auswahl angestoßen; es soll auch erfahren,
+  // was dabei herauskam — dort steht der Knopf, den jemand gerade gedrückt hat.
+  ruf("settings_window_refresh", { payload: JSON.stringify(einstellungenStand(text, art)) });
+}
+
+/**
+ * Was vom Katalog nach außen sichtbar ist: die Warnung in der Werkzeugleiste,
+ * das Zeichen auf der eingeklappten Schiene — und der Stand im
+ * Einstellungsfenster, falls es offen ist.
+ *
+ * Die Kachel in der Seitenleiste gibt es nicht mehr: welche Preisliste gilt,
+ * ist eine Einstellung des Programms und keine Angabe zu diesem Angebot.
+ */
+function katalogZeichnen() {
+  schieneZeichnen();
+  $("#ohnePreisliste").hidden = !!katalog;
+  ruf("settings_window_refresh", { payload: JSON.stringify(einstellungenStand()) });
+}
+
+/** Der Katalogstand für das Einstellungsfenster — Zahlen, keine Produkte. */
+function einstellungenStand(meldung = "", art = "") {
+  return {
+    meldung, art,
+    katalog: katalog && {
+      datei: katalog.datei,
+      kategorien: katalog.kategorien.length,
+      produkte: katalog.kategorien.reduce((n, k) => n + k.produkte.length, 0),
+      hinweise: katalog.kategorien.filter(k => k.hinweise.length).length,
+      uebergangen: katalog.uebergangen.length,
+    },
+  };
+}
+
+
+// ---------------------------------------------------------------------------
+// DATEI
+// ---------------------------------------------------------------------------
+$("#dateiMenu").addEventListener("click", () => {
+  menuPunkte([
+    { a: "neu", t: "Neue Kalkulation" },
+    { a: "oeffnen", t: "Öffnen …" },
+    "-",
+    { a: "speichern", t: "Speichern", aus: !dateiId },
+    { a: "speichernUnter", t: "Speichern unter …" },
+  ]);
+  const r = $("#dateiMenu").getBoundingClientRect();
+  openMenu(menu, r.left, r.top, { arg: { typ: "datei" }, trigger: () => $("#dateiMenu") });
+  // Nach oben aufklappen: die Schaltfläche sitzt am unteren Fensterrand, nach
+  // unten bliebe kein Platz. Die Höhe steht erst fest, wenn das Menü sichtbar
+  // ist — openMenu blendet es ein, deshalb erst danach.
+  $("#menu").style.top = Math.max(4, r.top - $("#menu").offsetHeight - 4) + "px";
+});
+
+async function dateiAktion(aktion) {
+  switch (aktion) {
+    case "neu": {
+      if (geaendert && !(await fragen("Neue Kalkulation?",
+        "Die aktuelle Kalkulation ist nicht gespeichert. Ihre Änderungen gehen verloren.",
+        "Verwerfen"))) return;
+      kalk = R.neueKalkulation();
+      if (katalog) kalk.katalogDatei = katalog.datei;
+      dateiId = null; dateiName = "";
+      letzterBlock = null;
+      kopfZeichnen(); tabelleZeichnen(); gespeichert();
+      melde("Neue Kalkulation.");
+      return;
+    }
+    case "oeffnen": return oeffnen();
+    case "speichern": return speichern(false);
+    case "speichernUnter": return speichern(true);
+  }
+}
+
+$("#speichern").addEventListener("click", () => speichern(!dateiId));
+
+// Eingeklappt liegt die Schaltfläche verborgen, und Speichern ist das eine,
+// was immer gehen muss. ⌘S / Strg-S tut dasselbe wie sie.
+addEventListener("keydown", e => {
+  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "s") return;
+  e.preventDefault();
+  speichern(!dateiId);
+});
+
+async function oeffnen() {
+  if (!imRahmen) { melde("Ohne Tauri lässt sich keine Datei öffnen.", "error"); return; }
+  if (geaendert && !(await fragen("Andere Kalkulation öffnen?",
+    "Die aktuelle Kalkulation ist nicht gespeichert. Ihre Änderungen gehen verloren.",
+    "Verwerfen"))) return;
+  try {
+    const d = await invoke("pick_calculation");
+    if (!d) return;
+    kalk = R.kalkulationPruefen(JSON.parse(d.text));
+    dateiId = d.id; dateiName = d.name;
+    letzterBlock = null;
+    kopfZeichnen(); tabelleZeichnen(); gespeichert();
+    melde(`„${d.name}“ geöffnet.`, "ok");
+    if (kalk.katalogDatei && katalog && kalk.katalogDatei !== katalog.datei) {
+      melde(`Achtung: gerechnet wurde mit „${kalk.katalogDatei}“, geladen ist „${katalog.datei}“.`, "error");
+    }
+  } catch (e) {
+    melde(`Öffnen fehlgeschlagen: ${e?.message ?? e}`, "error");
+  }
+}
+
+async function speichern(alsNeu) {
+  if (!imRahmen) { melde("Ohne Tauri lässt sich nicht gespeichert werden.", "error"); return; }
+  const text = JSON.stringify(kalk, null, 2);
+  try {
+    if (!alsNeu && dateiId) {
+      await invoke("write_calculation", { id: dateiId, text });
+    } else {
+      const d = await invoke("save_calculation", { name: vorschlagsName(), text });
+      if (!d) return;
+      dateiId = d.id; dateiName = d.name;
+    }
+    gespeichert();
+    melde("Gespeichert.", "ok");
+  } catch (e) {
+    melde(`Speichern fehlgeschlagen: ${e?.message ?? e}`, "error");
+  }
+}
+
+/** Ein Dateiname, den man nicht erst eintippen muss. */
+function vorschlagsName() {
+  const teile = [kalk.kopf.angebotsNr, kalk.kopf.kunde, kalk.kopf.projekt].filter(Boolean);
+  const name = teile.length ? teile.join(" – ") : "Kalkulation";
+  return `${name}.kalk`;
+}
+
+function dateiZeichnen() {
+  $("#dateiName").textContent = (dateiName || "Nicht gespeichert") + (geaendert ? " •" : "");
+  $("#speichern").textContent = dateiId ? "Speichern" : "Speichern …";
+}
+
+/**
+ * Merkt vor, dass es etwas zu verlieren gibt.
+ *
+ * Rust erfährt es mit, weil nur Rust das Schließen des Fensters abfangen kann:
+ * `beforeunload` im Webview greift dort nicht zuverlässig, und ein ungefragt
+ * geschlossenes Fenster hätte eine halbe Arbeitsstunde mitgenommen.
+ */
+let druckWink = 0;
+
+function aendern() {
+  if (!geaendert) {
+    geaendert = true;
+    dateiZeichnen();
+    ruf("set_dirty", { dirty: true });
+  }
+  // Dem Druckfenster winken, dass seine Vorschau nicht mehr stimmt. Gedrosselt,
+  // weil `aendern` bei jedem Tastendruck in einer Mengenspalte läuft; der Wink
+  // ist nur ein Signal, geholt wird der Stand erst auf Klick dort drüben.
+  clearTimeout(druckWink);
+  druckWink = setTimeout(() => ruf("print_stale"), 300);
+}
+
+function gespeichert() {
+  geaendert = false;
+  dateiZeichnen();
+  ruf("set_dirty", { dirty: false });
+}
+
+// ---------------------------------------------------------------------------
+// DRUCKEN
+// ---------------------------------------------------------------------------
+// Die drei Stufen sind dieselben wie im abgelösten Makro: sie ändern nicht,
+// WAS auf dem Angebot steht, sondern WO ein Preis steht. Der Umfang bleibt in
+// allen dreien vollständig aufgeführt — das Angebot beschreibt die Leistung,
+// und ausgepreist wird auf der Ebene, auf der man sich einig wird.
+$("#druckMenu").addEventListener("click", () => {
+  menuPunkte([
+    { a: "1", t: "Stufe 1 — nur Hauptpositionen", titel: "Nur die obersten Positionen tragen einen Preis." },
+    { a: "2", t: "Stufe 2 — alle Positionen", titel: "Jede Position trägt ihren Preis, die Einzelzeilen nicht." },
+    { a: "3", t: "Stufe 3 — mit Einzelzeilen", titel: "Auch jede Einzelzeile trägt ihren Preis." },
+  ]);
+  const r = $("#druckMenu").getBoundingClientRect();
+  openMenu(menu, r.right, r.bottom + 4, { arg: { typ: "druck" }, right: true, trigger: () => $("#druckMenu") });
+});
+
+// Mit welcher Stufe das Druckfenster zuletzt geöffnet wurde — beim
+// Aktualisieren bleibt sie, sonst bekäme man unversehens ein anderes Angebot.
+let druckStufe = 3;
+
+/** Baut die Abschrift samt Firmenangaben — beim Öffnen wie beim Aktualisieren. */
+async function druckNutzlast(stufe) {
+  // Firmenangaben und Logo erst jetzt holen, direkt aus den Einstellungen:
+  // so kann das Hauptfenster keinen veralteten Stand drucken, auch wenn das
+  // Einstellungsfenster daneben offen steht.
+  const [absender, fuss, logo] = await Promise.all([
+    einstellung("absender", VORGABE_KOPF),
+    einstellung("fuss", VORGABE_FUSS),
+    invoke("logo_get").then(v => v || ""),
+  ]);
+  return JSON.stringify({ ...druckAbschrift(stufe), absender, fuss, logo });
+}
+
+// Das Druckfenster bittet um den aktuellen Stand.
+listen("kalkula://druck", async () => {
+  try {
+    await invoke("print_refresh", { payload: await druckNutzlast(druckStufe) });
+  } catch (e) {
+    melde(`Die Vorschau ließ sich nicht aktualisieren: ${e?.message ?? e}`, "error");
+  }
+});
+
+async function drucken(stufe) {
+  if (!R.durchlaufen(kalk).length) { melde("Es gibt nichts zu drucken.", "error"); return; }
+  // Vor dem Angebot nachfragen, nicht danach: eine Zeile ohne Preis geht mit
+  // 0,00 € in die Summe ein, und auf einem Angebot ist das der Unterschied
+  // zwischen einer Leistung, die nichts kostet, und einer, die vergessen
+  // wurde. Das Makro hatte diese Frage nicht — es kannte den Unterschied
+  // zwischen „kein Preis" und „Preis null" gar nicht.
+  const offen = R.gesamtsumme(kalk).offen;
+  if (offen && !(await fragen("Zeilen ohne Preis",
+    `${offen} Zeile(n) haben keinen Preis und gehen mit 0,00 € in die Summe ein. `
+    + "Auf dem Angebot stehen sie ohne Betrag.", "Trotzdem drucken"))) return;
+  if (!imRahmen) { melde("Ohne Tauri lässt sich das Druckfenster nicht öffnen.", "error"); return; }
+  try {
+    // Gedruckt wird eine fertige Abschrift, keine Verknüpfung auf den
+    // Arbeitsstand: das Druckfenster soll sich nicht mitändern, während man
+    // im Hauptfenster weiterarbeitet.
+    druckStufe = stufe;
+    await invoke("open_print_window", { payload: await druckNutzlast(stufe) });
+    melde(`Druckvorschau, Stufe ${stufe}.`);
+  } catch (e) {
+    melde(`Das Druckfenster ließ sich nicht öffnen: ${e?.message ?? e}`, "error");
+  }
+}
+
+/**
+ * Die Abschrift fürs Druckfenster: alles gerechnet, nichts mehr zu tun.
+ *
+ * Gerechnet wird hier und nicht dort, damit es nur eine Stelle gibt, an der
+ * gerechnet wird. Das Makro rechnete im Export ein zweites Mal
+ * (`CalculateHeaderTotals`) und konnte damit andere Zahlen zeigen als das
+ * Arbeitsblatt.
+ */
+function druckAbschrift(stufe) {
+  const zeilen = R.durchlaufen(kalk).map(e => {
+    const k = e.knoten;
+    const istBlock = k.art === "block";
+    const s = istBlock ? R.summe(k, kalk) : null;
+    const r = istBlock ? null : R.zeileRechnen(k, kalk);
+    // Welche Zeile einen Preis trägt, hängt an der Stufe: Stufe 1 preist nur
+    // die oberste Ebene aus, Stufe 2 jede Position, Stufe 3 auch die Zeilen.
+    const zeigtPreis = istBlock ? (stufe === 1 ? e.tiefe === 1 : true) : stufe === 3;
+    return {
+      art: istBlock ? "block" : (R.istFrei(k) ? "frei" : "zeile"),
+      nummer: e.nummer,
+      tiefe: e.tiefe,
+      titel: istBlock ? k.titel : "",
+      kategorie: k.kategorie || "",
+      produkt: k.produkt || k.text || "",
+      groesse: k.groesse || "",
+      menge: istBlock ? null : k.menge,
+      einheit: k.einheit || "",
+      epGesamt: r ? r.epGesamt : null,
+      gesamt: zeigtPreis ? (istBlock ? s.gesamt : r.gesamt) : null,
+      zeigtPreis,
+      // Was diese Zeile zum Übertrag am Seitenfuß beiträgt.
+      //
+      // Gezählt wird auf der Ebene, die die Stufe auspreist, und nur dort —
+      // sonst zählte man doppelt: auf Stufe 3 tragen die Positionsköpfe
+      // dieselben Beträge wie die Zeilen darunter. Auf Stufe 1 und 2 sind es
+      // die Hauptpositionen, auf Stufe 3 die Einzelzeilen. Beide Summen
+      // ergeben genau die Gesamtsumme.
+      beitrag: stufe === 3
+        ? (istBlock ? 0 : (r.gesamt ?? 0))
+        : (istBlock && e.tiefe === 1 ? s.gesamt : 0),
+    };
+  });
+
+  return {
+    stufe,
+    kopf: { ...kalk.kopf },
+    zeilen,
+    gesamt: R.gesamtsumme(kalk).gesamt,
+    katalogDatei: kalk.katalogDatei || "",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// START
+// ---------------------------------------------------------------------------
+(async function start() {
+  kopfZeichnen();
+  katalogZeichnen();
+  tabelleZeichnen();
+  dateiZeichnen();
+
+  if (!imRahmen) { melde("Ohne Tauri: Öffnen, Speichern und Drucken sind nicht verfügbar."); return; }
+
+  $("#fassung").textContent = `Kalkula ${await invoke("app_version")}`;
+
+  // Einmal anlegen, falls es die Einstellungen noch nicht gibt — damit im
+  // Einstellungsfenster etwas steht und der erste Ausdruck nicht ohne
+  // Firmenangaben herauskommt.
+  await einstellung("absender", VORGABE_KOPF);
+  await einstellung("fuss", VORGABE_FUSS);
+
+  // Die zuletzt benutzte Preisliste wieder laden. Sie wechselt selten, und sie
+  // jedes Mal zu suchen wäre der erste Handgriff jedes Arbeitstags.
+  try {
+    const d = await invoke("catalog_recall");
+    if (d) await katalogUebernehmen(new Uint8Array(d.bytes), d.name, null);
+  } catch (e) {
+    melde(`Die zuletzt benutzte Preisliste ließ sich nicht laden: ${e?.message ?? e}`);
+  }
+})();
+</script>
+</body>
+</html>

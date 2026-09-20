@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Kalkula — alle Fenster. Nur core:default: die Oberfläche hat keinen Zugriff auf Dateisystem, Dialoge oder Shell; alles davon läuft über die Befehle in lib.rs.",
+  "windows": ["main", "druck", "katalog", "einstellungen"],
+  "permissions": ["core:default"]
+}
