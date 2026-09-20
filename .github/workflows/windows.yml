@@ -1,0 +1,63 @@
+# Baut die Windows-Fassung als einzelne, lauffähige Datei.
+#
+# WARUM ÜBERHAUPT HIER
+#   Tauri kann nicht von macOS aus für Windows bauen — dafür braucht es die
+#   MSVC-Werkzeuge. Dieser Lauf ist der Windows-Rechner, den man sonst dafür
+#   hinstellen müsste.
+#
+# WARUM `--no-bundle`
+#   Gesucht ist etwas, das man kopiert und startet, kein Installationspaket.
+#   Die Datei darunter gibt es ohnehin: MSI und NSIS packen sie nur ein.
+#   `--no-bundle` überspringt das Einpacken und lässt die blanke .exe stehen.
+#
+# WAS DIE .EXE NICHT MITBRINGT
+#   Ihren Renderer. Unter Windows zeichnet Tauri über WebView2, und das gehört
+#   zum Betriebssystem, nicht zum Programm. Auf Windows 11 ist es da, auf
+#   Windows 10 seit 2021 über Edge nachgeliefert. Fehlt es, startet die Datei
+#   nicht — dann führt kein Weg an einem Installationspaket mit
+#   `webviewInstallMode: offlineInstaller` vorbei.
+
+name: Windows
+
+on:
+  # Von Hand auslösbar: Actions → Windows → „Run workflow".
+  workflow_dispatch:
+  # Und bei jedem Versionsschild, damit eine Fassung nachvollziehbar bleibt.
+  push:
+    tags: ["v*"]
+
+jobs:
+  exe:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # `npm ci` und nicht `npm install`: es hält sich an package-lock.json.
+      # Gebraucht wird Node nicht nur zum Installieren — `beforeBuildCommand`
+      # ruft `npm run check`, und das prüft mit esbuild die Oberfläche.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Ohne den Zwischenspeicher übersetzt jeder Lauf rund 360 Kisten neu.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Bauen
+        run: npm run build -- --no-bundle
+
+      # Der Name kommt aus `[package] name` in Cargo.toml, nicht aus
+      # `productName` — siehe `mainBinaryName`, falls das einmal „Kalkula.exe"
+      # heißen soll.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kalkula-windows
+          path: src-tauri/target/release/kalkula.exe
+          if-no-files-found: error
