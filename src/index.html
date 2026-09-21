@@ -76,8 +76,9 @@
 
   body[data-leiste=zu] aside { padding:10px 0; gap:8px; align-items:center; overflow:hidden }
   /* Als :not-Kette, damit ein später hinzukommender Abschnitt nicht
-     durchrutscht: sichtbar bleiben genau der erste Abschnitt und die Schiene. */
-  body[data-leiste=zu] aside > :not(section:first-of-type):not(#schiene) { display:none }
+     durchrutscht: sichtbar bleiben genau der erste Abschnitt, die Schiene und
+     die Fußzeile — von der allerdings nur das Zahnrad, siehe unten. */
+  body[data-leiste=zu] aside > :not(section:first-of-type):not(#schiene):not(.row) { display:none }
   body[data-leiste=zu] aside > section:first-of-type > :not(h2) { display:none }
   body[data-leiste=zu] aside > section:first-of-type > h2 { min-height:auto; margin:0;
                                                             padding-bottom:0; border-bottom:0 }
@@ -85,8 +86,32 @@
   body[data-leiste=zu] #schiene { display:flex; flex-direction:column; align-items:center; gap:5px }
   #schiene .chip { padding:1px 6px; border-radius:999px; background:var(--raised);
                    color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums }
-  #schiene .chip.warn { color:var(--warn); background:color-mix(in srgb, var(--warn) 16%, transparent) }
   #schiene .chip:empty { display:none }
+
+  /* Eingeklappt bleibt von der Fußzeile das Zahnrad stehen, unten, wo es auch
+     aufgeklappt sitzt. Die Einstellungen sind der einzige Weg zu Logo,
+     Firmenangaben und Preisliste; sie nur dafür aufzuklappen wäre ein Umweg
+     für etwas, das man im Vorbeigehen braucht.
+
+     Die beiden anderen bleiben weg. „Speichern" tut ⌘S ohnehin — deshalb gibt
+     es die Tastenkürzel —, und ein Menü, das breiter aufklappt als die Leiste,
+     auf der seine Schaltfläche steht, sieht falsch aus.
+
+     `position:static` hebt das `sticky` der aufgeklappten Fassung auf: dort
+     hält es „Speichern" beim Scrollen am Rand, hier gibt es nichts zu
+     scrollen (`overflow:hidden`), und der negative Rand risse die Zeile aus
+     dem Polster. */
+  body[data-leiste=zu] aside > .row { position:static; justify-content:center;
+                                      padding:8px 0 0; margin-bottom:0; border-top:0 }
+  body[data-leiste=zu] aside > .row > :not(#einstellungen) { display:none }
+  /* Dasselbe Quadrat wie der Einklapp-Schalter oben: zwei Sinnbilder auf
+     derselben Schiene sollen dieselbe Fläche haben. Und es muss passen —
+     die Schiene ist 58 px breit, davon bleiben der Leiste 42 px, und mit der
+     üblichen Polsterung (11 px je Seite) käme das Zahnrad auf 38 px. Das
+     ginge knapp auf; eine Schriftart mit breiterem ⚙ oder ein Pixel mehr
+     Rand, und `overflow:hidden` schnitte es an. */
+  body[data-leiste=zu] #einstellungen { width:26px; height:26px; padding:0;
+                                        display:grid; place-items:center }
 
   /* Kopfdaten: zwei Felder nebeneinander, wo beide kurz sind. Angebots-Nr. und
      Datum stehen ohnehin immer zusammen auf dem Angebot.
@@ -249,8 +274,10 @@
       <input type="text" id="bearbeiter" data-kopf="bearbeiter"></div>
   </section>
 
-  <!-- Was auf der eingeklappten Schiene stehen bleibt: die beiden Angaben, die
-       die Leiste verdeckt und die trotzdem jede Zeile betreffen. -->
+  <!-- Was auf der eingeklappten Schiene stehen bleibt: der Zuschlagssatz. Er
+       ist die einzige Angabe der Leiste, die jede Zeile betrifft, ohne im
+       Blatt zu stehen — verdeckt wäre er eine Zahl, die stillschweigend jeden
+       Preis verändert. -->
   <div id="schiene" aria-hidden="true">
     <span class="chip" id="schieneZuschlag"></span>
   </div>
