@@ -50,6 +50,25 @@ input[type=text],input[type=date],input[type=number],select,textarea {
   width:100%; padding:6px 8px; border:1px solid var(--field-line); border-radius:var(--r-sm);
   background:var(--sunk); font:inherit; color:inherit;
   transition:border-color var(--dur) var(--ease), background var(--dur) var(--ease) }
+/* Ein Datumsfeld ist von sich aus höher als ein Textfeld. WebKit baut darin
+   ein eigenes Kästchen — Zifferngruppen, Trennpunkte, Kalendersymbol — und
+   nimmt dessen Höhe statt der einer Textzeile. In WKWebView gemessen: 36px
+   gegen 32,84px, bei identischer Polsterung. Die Differenz steckt ganz im
+   Inhaltskasten, 22px gegen 18,84px, und wächst mit dem Zeilenabstand
+   einfach mit — über `line-height` ist sie deshalb nicht einzuholen.
+
+   Also ein gemeinsames Maß. 34px ist das kleinste, bei dem das Datumsfeld
+   nicht beschnitten wird, und auch das nur mit der Zeile darunter: ohne sie
+   oder bei 33px meldet es `scrollHeight > clientHeight`, und dann fehlt dem
+   Kalendersymbol unten ein Streifen.
+
+   Nur `.field >`: in der Tabelle sitzen die Felder enger (`td input`), dort
+   wäre ein festes Maß von 34px zu hoch. */
+.field > input[type=text],
+.field > input[type=date],
+.field > input[type=number] { height:34px }
+.field > input[type=date]::-webkit-datetime-edit { padding:0 }
+
 input:hover,select:hover,textarea:hover { border-color:var(--accent) }
 textarea { min-height:54px; resize:vertical }
 input::placeholder, textarea::placeholder { color:var(--muted); opacity:1 }
