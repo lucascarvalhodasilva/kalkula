@@ -232,6 +232,21 @@ stattdessen gleich in die Nachbarposition. Das ist ohnehin die Stelle, die im
 Blatt als nächste kommt, und es hält die Nummerierung heil: eine Zeile ohne
 Position darüber bekäme die Nummer `0.01`.
 
+**Und eine Zeile bleibt vor den Unterpositionen.** In einem Block stehen erst
+die Zeilen, dann die Unterpositionen — `ordnen` in `rechnen.js` hält das fest,
+beim Einfügen wie beim Laden einer älteren Datei. Das ist die Ordnung eines
+Leistungsverzeichnisses, und die Nummerierung beruht darauf: `1.01` heißt
+„erste Zeile dieser Position", `1.1` „erste Unterposition". Die Nummer einer
+Zeile sagt nichts darüber, wo sie relativ zu den Unterpositionen steht — stand
+sie hinter einer, las sich das Blatt `1.1`, dann `1.01`, und eine
+Nummernfolge, die zurückspringt, ist in einem Angebot schlicht falsch.
+
+Darum kann ein Block nicht über eine Zeile steigen und eine Zeile nicht unter
+eine Unterposition rutschen. Wo ein Zug nichts bewirken kann, **graut das
+Zeilenmenü ihn aus** statt ihn anzubieten und dann zu schweigen — dieselbe
+Entscheidung trifft `kannSchieben`, die das Menü fragt, damit die Regel nicht
+zweimal im Code steht und mit der Zeit auseinanderläuft.
+
 Ein Block, der in einen anderen nicht mehr hineinpasst, ohne `MAX_TIEFE` zu
 sprengen, tauscht stattdessen nur den Platz.
 

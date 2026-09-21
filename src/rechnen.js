@@ -231,6 +231,39 @@ export function durchlaufen(kalk) {
 // die Oberfläche zeichnet danach ohnehin alles neu, und eine Kopie brächte nur
 // die Frage mit, welche der beiden gerade gilt.
 
+/**
+ * Stellt in jedem Block erst die Zeilen, dann die Unterpositionen.
+ *
+ * DIE ORDNUNG, AUF DER DIE NUMMERIERUNG BERUHT
+ *   `durchlaufen` zählt Zeilen und Unterpositionen getrennt: `1.01` heißt
+ *   „erste Zeile dieser Position", `1.1` „erste Unterposition". Die Nummer
+ *   einer Zeile sagt also nichts darüber, wo sie relativ zu den
+ *   Unterpositionen steht — sie bleibt `1.01`, wohin sie auch rutscht.
+ *
+ *   Stand eine Zeile hinter einer Unterposition, las sich das Blatt
+ *   `1.1`, dann `1.01`. Aufsteigend war daran nichts mehr, und in einem
+ *   Angebot ist eine Nummernfolge, die zurückspringt, schlicht falsch.
+ *
+ *   Darum gilt: in einem Block stehen erst die Zeilen, dann die
+ *   Unterpositionen. Das ist ohnehin die Ordnung eines
+ *   Leistungsverzeichnisses — was unmittelbar zur Überschrift gehört,
+ *   steht vor ihren Unterabschnitten.
+ *
+ * Stabil: unter den Zeilen und unter den Unterpositionen bleibt die
+ * Reihenfolge, die jemand gelegt hat. Verschoben wird nur über die Grenze
+ * zwischen beiden hinweg.
+ */
+export function ordnen(liste) {
+  const zeilen = liste.filter(k => k.art !== "block");
+  const bloecke = liste.filter(k => k.art === "block");
+  if (zeilen.length && bloecke.length) {
+    liste.length = 0;
+    liste.push(...zeilen, ...bloecke);
+  }
+  for (const b of bloecke) ordnen(b.kinder);
+  return liste;
+}
+
 /** Findet den Knoten und seinen Elternteil. */
 export function finden(kalk, id) {
   const suchen = (liste, eltern) => {
@@ -257,15 +290,23 @@ export function tiefeVon(kalk, id) {
  * Ohne beides ans Ende der obersten Ebene.
  */
 export function einfuegen(kalk, neu, { inId = null, nachId = null } = {}) {
+  // `ordnen` hinterher und nicht klug beim Einhängen: eine neue Zeile in
+  // einem Block, der schon Unterpositionen hat, gehört vor sie — und das
+  // gilt für alle drei Wege hier unten gleichermaßen.
   if (nachId) {
     const t = finden(kalk, nachId);
-    if (t) { t.liste.splice(t.index + 1, 0, neu); return neu; }
+    if (t) { t.liste.splice(t.index + 1, 0, neu); ordnen(kalk.posten); return neu; }
   }
   if (inId) {
     const t = finden(kalk, inId);
-    if (t && t.knoten.art === "block") { t.knoten.kinder.push(neu); return neu; }
+    if (t && t.knoten.art === "block") {
+      t.knoten.kinder.push(neu);
+      ordnen(kalk.posten);
+      return neu;
+    }
   }
   kalk.posten.push(neu);
+  ordnen(kalk.posten);
   return neu;
 }
 
@@ -280,6 +321,25 @@ export function entfernen(kalk, id) {
 function hoehe(knoten) {
   if (knoten.art !== "block") return 0;
   return 1 + knoten.kinder.reduce((m, k) => Math.max(m, k.art === "block" ? hoehe(k) : 0), 0);
+}
+
+/**
+ * Wo in `kinder` ein hineinwandernder Knoten landet.
+ *
+ * „Hinein dort, wo man herkommt" — aber innerhalb des Abschnitts, in den der
+ * Knoten gehört: Zeilen vorne, Unterpositionen hinten (siehe `ordnen`). Eine
+ * Zeile, die von unten heraufkommt, setzt sich also ans Ende der ZEILEN und
+ * nicht ans Ende der Liste; ein Block, der von oben herabkommt, an den ANFANG
+ * der Unterpositionen und nicht an den der Liste.
+ *
+ * Ohne diese Unterscheidung rutschte eine Zeile hinter die Unterpositionen
+ * ihres neuen Blocks und ihre Nummer las sich wieder rückwärts.
+ */
+function hineinAn(kinder, knoten, richtung) {
+  const erste = kinder.findIndex(k => k.art === "block");
+  const grenze = erste < 0 ? kinder.length : erste;
+  if (knoten.art !== "block") return richtung > 0 ? 0 : grenze;
+  return richtung > 0 ? grenze : kinder.length;
 }
 
 /** Passt `knoten` noch in `block`, ohne MAX_TIEFE zu sprengen? */
@@ -298,14 +358,46 @@ function umhaengen(t, zielListe, pos) {
 /**
  * Schiebt einen Knoten eine Stelle nach oben oder unten.
  *
- * Nicht nur unter Geschwistern: an der Grenze einer Position geht es weiter,
- * und ist der Nachbar selbst eine Position, geht es hinein. Damit erreicht
- * jeder Posten mit wiederholtem Drücken jede Stelle der Gliederung.
+ * Wohin das führt und warum, steht bei `schiebeZiel`. Gibt `false`, wenn
+ * sich nichts tut — dann zeichnet die Oberfläche auch nicht neu und merkt
+ * die Kalkulation nicht als geändert vor.
  *
  * Vorher endete das Schieben an der Grenze des Elternblocks: die letzte Zeile
  * einer Position „nach unten" tat schlicht nichts, und wer sie eine Position
  * tiefer haben wollte, musste sie löschen und neu anlegen. Das sah aus, als
- * sei die Schaltfläche kaputt.
+ * sei die Schaltfläche kaputt — heute graut das Menü sie aus, wo sie nichts
+ * bewirken kann, statt sie anzubieten und zu schweigen.
+ */
+export function schieben(kalk, id, richtung) {
+  const t = finden(kalk, id);
+  if (!t) return false;
+  const ziel = schiebeZiel(kalk, t, richtung);
+  if (!ziel) return false;
+  return umhaengen(t, ziel.liste, ziel.pos);
+}
+
+/**
+ * Kann dieser Knoten dorthin — würde `schieben` also etwas tun?
+ *
+ * Damit graut das Zeilenmenü „Nach oben"/„Nach unten" aus, statt sie
+ * anzubieten und dann stumm nichts zu tun. Eine Schaltfläche, die sich
+ * drücken lässt und nichts bewirkt, sieht aus wie ein Fehler.
+ */
+export function kannSchieben(kalk, id, richtung) {
+  const t = finden(kalk, id);
+  return !!t && !!schiebeZiel(kalk, t, richtung);
+}
+
+/**
+ * Wohin ein Knoten beim Schieben käme — oder `null`, wenn nirgendwohin.
+ *
+ * Getrennt von `schieben`, damit das Menü dieselbe Entscheidung fragen kann,
+ * ohne sie ein zweites Mal aufzuschreiben. Zwei Fassungen derselben Regel
+ * laufen mit der Zeit auseinander.
+ *
+ * Nicht nur unter Geschwistern: an der Grenze einer Position geht es weiter,
+ * und ist der Nachbar selbst eine Position, geht es hinein. Damit erreicht
+ * jeder Posten mit wiederholtem Drücken jede Stelle der Gliederung.
  *
  * Hinein geht es dort, wo man herkommt: nach unten oben hinein, nach oben
  * unten hinein. Alles andere ließe den Posten springen.
@@ -316,48 +408,61 @@ function umhaengen(t, zielListe, pos) {
  * nächste kommt, und es hält die Nummerierung heil: eine Zeile ohne Position
  * darüber hätte keine Nummer, die etwas bedeutet.
  *
+ * UND EINE ZEILE BLEIBT VOR DEN UNTERPOSITIONEN. Siehe `ordnen`: die
+ * Nummerierung beruht darauf. Ein Block kann deshalb nicht über eine Zeile
+ * steigen und eine Zeile nicht unter einen Block rutschen — dort ist für
+ * beide kein Platz, und statt die Ordnung zu brechen und sie hinterher
+ * stillschweigend wiederherzustellen, sagt diese Funktion schlicht nein.
+ *
  * Die Positionsnummern zieht niemand nach — sie werden in `durchlaufen` aus
  * dem Platz im Baum abgeleitet und sind nach dem nächsten Zeichnen von selbst
  * richtig, auch für alle Zeilen unterhalb einer verschobenen Position.
- *
- * Gibt false, wenn sich nichts tut: ganz oben, ganz unten, oder wenn der
- * Zielblock zu tief läge.
  */
-export function schieben(kalk, id, richtung) {
-  const t = finden(kalk, id);
-  if (!t) return false;
+function schiebeZiel(kalk, t, richtung) {
   const istZeile = t.knoten.art !== "block";
   const ziel = t.index + richtung;
+  const nachbar = ziel >= 0 && ziel < t.liste.length ? t.liste[ziel] : null;
 
   // 1. Es gibt einen Nachbarn in derselben Liste.
-  if (ziel >= 0 && ziel < t.liste.length) {
-    const nachbar = t.liste[ziel];
-    if (nachbar.art === "block" && passtHinein(kalk, nachbar, t.knoten)) {
-      return umhaengen(t, nachbar.kinder, richtung > 0 ? 0 : nachbar.kinder.length);
+  if (nachbar) {
+    // Der Nachbar ist selbst eine Position: hinein, und zwar dort, wo man
+    // herkommt — nach unten oben hinein, nach oben unten hinein. Alles
+    // andere ließe den Posten springen.
+    if (nachbar.art === "block") {
+      if (passtHinein(kalk, nachbar, t.knoten)) {
+        return { liste: nachbar.kinder, pos: hineinAn(nachbar.kinder, t.knoten, richtung) };
+      }
+      // Hinein passt er nicht mehr, ohne MAX_TIEFE zu sprengen. Zwei Blöcke
+      // tauschen dann nur den Platz. Einer Zeile bleibt nichts: hinter einer
+      // Unterposition hat sie nichts zu suchen, sonst läse sich ihre Nummer
+      // rückwärts (siehe `ordnen`).
+      return istZeile ? null : { liste: t.liste, pos: ziel };
     }
-    const [k] = t.liste.splice(t.index, 1);
-    t.liste.splice(ziel, 0, k);
-    return true;
+
+    // Der Nachbar ist eine Zeile. Unter Zeilen ist das ein Platztausch; ein
+    // Block dagegen kann nicht über eine Zeile steigen.
+    return istZeile ? { liste: t.liste, pos: ziel } : null;
   }
 
   // 2. Am Rand der Liste. Oberste Ebene: weiter geht es nicht.
-  if (!t.eltern) return false;
+  if (!t.eltern) return null;
   const e = finden(kalk, t.eltern.id);
-  if (!e) return false;
+  if (!e) return null;
 
   // Ein Block tritt eine Ebene hinaus.
-  if (!istZeile) return umhaengen(t, e.liste, richtung > 0 ? e.index + 1 : e.index);
+  if (!istZeile) return { liste: e.liste, pos: richtung > 0 ? e.index + 1 : e.index };
 
   // Eine Zeile wechselt in die Nachbarposition.
   const nachbarIdx = e.index + richtung;
-  if (nachbarIdx < 0 || nachbarIdx >= e.liste.length) return false;
-  const nachbar = e.liste[nachbarIdx];
-  if (nachbar.art !== "block" || !passtHinein(kalk, nachbar, t.knoten)) {
-    // Nebenan steht keine Position, sondern eine Zeile — dort stehen also
-    // ohnehin Zeilen auf dieser Ebene, und die Zeile darf dazu.
-    return umhaengen(t, e.liste, richtung > 0 ? e.index + 1 : e.index);
+  if (nachbarIdx < 0 || nachbarIdx >= e.liste.length) return null;
+  const nebenan = e.liste[nachbarIdx];
+  if (nebenan.art === "block") {
+    if (!passtHinein(kalk, nebenan, t.knoten)) return null;
+    return { liste: nebenan.kinder, pos: hineinAn(nebenan.kinder, t.knoten, richtung) };
   }
-  return umhaengen(t, nachbar.kinder, richtung > 0 ? 0 : nachbar.kinder.length);
+  // Nebenan steht keine Position, sondern eine Zeile — dort stehen also
+  // ohnehin Zeilen auf dieser Ebene, und die Zeile darf dazu.
+  return { liste: e.liste, pos: richtung > 0 ? e.index + 1 : e.index };
 }
 
 /** Zählt, was unter einem Knoten hängt — für die Rückfrage vor dem Löschen. */
@@ -442,5 +547,10 @@ export function kalkulationPruefen(roh) {
     }
   };
   durch(kalk.posten);
+
+  // Dateien aus einer Fassung vor dieser Ordnung können Zeilen hinter
+  // Unterpositionen führen. Einmal beim Laden geradeziehen — sonst zeigte
+  // das Blatt Nummern, die zurückspringen.
+  ordnen(kalk.posten);
   return kalk;
 }

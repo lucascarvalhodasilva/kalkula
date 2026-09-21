@@ -1154,7 +1154,17 @@ function menuFuellen(art, id) {
       { a: "text", t: "+ Freitextzeile" },
       "-");
   }
-  punkte.push({ a: "hoch", t: "Nach oben" }, { a: "runter", t: "Nach unten" });
+  // Ausgegraut, wo der Knoten nicht hin kann: ganz oben, ganz unten, oder
+  // weil die Zeilen eines Blocks vor dessen Unterpositionen bleiben. Eine
+  // Schaltfläche, die sich drücken lässt und nichts tut, sieht kaputt aus.
+  const hoch = R.kannSchieben(kalk, id, -1);
+  const runter = R.kannSchieben(kalk, id, +1);
+  const warum = art === "block"
+    ? "Über einer Zeile steht keine Unterposition."
+    : "Unter einer Unterposition steht keine Zeile.";
+  punkte.push(
+    { a: "hoch", t: "Nach oben", aus: !hoch, titel: hoch ? "" : warum },
+    { a: "runter", t: "Nach unten", aus: !runter, titel: runter ? "" : warum });
   if (art === "zeile") punkte.push({ a: "doppeln", t: "Duplizieren" });
   punkte.push("-", { a: "loeschen", t: "Löschen", gefahr: true });
   menuPunkte(punkte);
@@ -1164,16 +1174,18 @@ function menuAktion(aktion, id) {
   const t = R.finden(kalk, id);
   if (!t) return;
   switch (aktion) {
+    // Nicht `kinder.push()`: `einfuegen` stellt die Zeilen eines Blocks vor
+    // dessen Unterpositionen (siehe `ordnen`). Hinten angehängt landete eine
+    // Materialzeile sonst hinter einer Unterposition, und ihre Nummer las
+    // sich dann rückwärts — 1.1 und darunter 1.01.
     case "unterpos": {
-      const b = R.neuerBlock();
-      t.knoten.kinder.push(b);
+      const b = R.einfuegen(kalk, R.neuerBlock(), { inId: id });
       letzterBlock = b.id;
       aendern(); tabelleZeichnen(); fokus(b.id, "titel");
       return;
     }
     case "zeile": case "text": {
-      const z = R.neueZeile();
-      t.knoten.kinder.push(z);
+      const z = R.einfuegen(kalk, R.neueZeile(), { inId: id });
       letzterBlock = id;
       aendern(); tabelleZeichnen(); fokus(z.id, aktion === "text" ? "text" : "kategorie");
       return;
