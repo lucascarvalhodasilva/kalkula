@@ -65,9 +65,72 @@ input[type=text],input[type=date],input[type=number],select,textarea {
    Nur `.field >`: in der Tabelle sitzen die Felder enger (`td input`), dort
    wäre ein festes Maß von 34px zu hoch. */
 .field > input[type=text],
-.field > input[type=date],
+.field input[type=date],
 .field > input[type=number] { height:34px }
-.field > input[type=date]::-webkit-datetime-edit { padding:0 }
+.field input[type=date]::-webkit-datetime-edit { padding:0 }
+
+/* ---- Was sich an einem Datumsfeld gestalten lässt ----
+   WebKit baut darin einen eigenen kleinen Baum: je ein Kästchen für Tag,
+   Monat und Jahr, die Trennpunkte dazwischen, rechts das Kalendersymbol.
+   Erreichbar ist davon in WKWebView nur ein Teil — nachgemessen, indem den
+   Selektoren eine Polsterung gegeben und die Breite des Feldes verglichen
+   wurde:
+
+     ::-webkit-datetime-edit                  greift
+     ::-webkit-datetime-edit-fields-wrapper   greift
+     ::-webkit-datetime-edit-text             greift
+     ::-webkit-datetime-edit-day/month/year-field   greift
+     ::-webkit-calendar-picker-indicator      wirkungslos
+     ::-webkit-datetime-edit-day-field:focus  wirkungslos
+
+   Das Kalendersymbol und die Hervorhebung der ausgewählten Zifferngruppe
+   bleiben deshalb, wie das System sie zeichnet. Wer sie anfassen will,
+   braucht einen selbstgebauten Kalender — und der müsste Wochenanfang,
+   Sprache und Tastaturbedienung neu richtig machen, die das Systemfeld
+   mitbringt. */
+
+/* Die Zifferngruppen tragen die Angabe, die Trennpunkte gliedern sie nur.
+   Also stehen die Punkte zurück, wie jede Nebenangabe im Programm. */
+.field input[type=date]::-webkit-datetime-edit-text { color:var(--muted) }
+
+/* Gleich breite Ziffern, wie in jedem Zahlenfeld des Programms.
+
+   Nicht gegen ein Springen beim Blättern: WebKit legt die Zifferngruppen
+   ohnehin auf feste Breiten fest, gemessen sind 11.11.2026 und 28.08.2028
+   beide 99,89 px breit. Der Grund ist allein der der anderen Zahlenfelder —
+   ein Datum ist eine Zahlenangabe und soll dieselben Ziffern zeigen wie die
+   Beträge daneben. */
+.field input[type=date] { font-variant-numeric:tabular-nums }
+
+/* ---- Der Kalenderknopf ----
+   Dasselbe Verfahren wie bei den Auswahllisten oben, und aus demselben
+   Grund: das Systemfeld bringt hier gar keine Handhabe mit — in WKWebView
+   steht im Datumsfeld nur die Zahl, kein Symbol —, und der Systemkalender
+   ist sonst nicht zu erreichen. Also bekommt das Feld dieselbe abgesetzte
+   Fläche am rechten Rand wie eine Auswahlliste, damit beide dasselbe sagen:
+   „hier lässt sich etwas aufklappen".
+
+   Eine eigene Klasse und nicht `.wrap`: dort hängt das Pfeilzeichen ▾ am
+   `::after`, und das gehört einer Liste, nicht einem Datum.
+
+   Ein wirklicher Knopf und kein Pseudo-Element, weil dieser hier etwas tut.
+   `showPicker()` öffnet den Kalender des Systems; ein `::after` könnte
+   keinen Klick annehmen. */
+.datumfeld { position:relative; display:block }
+.datumfeld > input[type=date] { padding-right:26px }
+.datumfeld > .kalender {
+  position:absolute; right:1px; top:1px; bottom:1px; width:20px;
+  display:grid; place-items:center; padding:0;
+  background:var(--raised); color:var(--muted);
+  border:0; border-left:1px solid var(--field-line);
+  border-radius:0 var(--r-sm) var(--r-sm) 0; cursor:pointer;
+  transition:color var(--dur) var(--ease) }
+/* Wie bei der Auswahlliste reagiert die Fläche auf das ganze Feld, nicht nur
+   auf sich selbst: man zielt auf das Datum, nicht auf zwanzig Pixel. */
+.datumfeld:hover > .kalender, .datumfeld > .kalender:hover { color:var(--accent) }
+.datumfeld > .kalender > svg {
+  width:13px; height:13px; fill:none; stroke:currentColor;
+  stroke-width:1.2; stroke-linecap:round }
 
 input:hover,select:hover,textarea:hover { border-color:var(--accent) }
 textarea { min-height:54px; resize:vertical }
