@@ -67,7 +67,16 @@ h2 { font-size:12px; font-weight:600; margin:0; display:flex; align-items:center
    niemand ansah. */
 .meta { font-weight:400; color:var(--muted); font-size:11px; line-height:1.3 }
 
-label.t { display:block; font-weight:600; margin-bottom:3px }
+/* 12px und nicht die geerbten 13: eine Beschriftung war größer als die
+   Überschrift, unter der sie steht, und größer als der Text, den sie
+   benennt — das Untergeordnete überragte das Übergeordnete.
+
+   Dieselbe Stufe wie die Überschrift, nicht kleiner: die Beschriftung sagt,
+   was in das Feld gehört, und ist damit das Erste, was gelesen wird.
+   Unterschieden sind die beiden ohnehin — eine Überschrift trägt ihre Linie
+   über die ganze Breite. Die Leiter des Programms ist damit geschlossen:
+   14 Rückfrage, 13 Eingabe, 12 Überschrift und Beschriftung, 11 Nebenangabe. */
+label.t { display:block; font-size:12px; font-weight:600; margin-bottom:3px }
 /* Die Überschrift ist ein Flexkasten und setzt den Abstand über `gap`; eine
    Beschriftung ist es nicht, dort braucht die Nebenangabe ihn selbst. */
 label.t .meta { margin-left:6px }
