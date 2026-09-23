@@ -44,8 +44,33 @@ body { font:13px/1.45 -apple-system,"Segoe UI",system-ui,sans-serif; color:var(-
 
 /* ---- Formularfelder ---- */
 .field { padding-block:9px } .field:first-child { padding-top:0 }
+/* ---- Abschnittsüberschrift ----
+   Wortgleich in index.html und einstellungen.html gewesen, zweimal gepflegt
+   und damit zweimal Gelegenheit, auseinanderzulaufen — genau das, wogegen es
+   diese Datei gibt.
+
+   Die Trennlinie hat oben wie unten 9px Luft, und `margin:0`: das erste
+   Element danach rückt selbst ab. Sonst stünde unter jeder Linie ein anderer
+   Abstand, je nachdem, was folgt.
+
+   Die Nebenangabe bleibt eine Nebenangabe: in voller Größe neben einer
+   12px-Überschrift brach sie um und schob die Linie darunter weg. */
+h2 { font-size:12px; font-weight:600; margin:0; display:flex; align-items:center; gap:6px;
+     min-height:calc(26px + 9px + 1px); padding-bottom:9px; border-bottom:1px solid var(--line) }
+/* Die Nebenangabe, einmal für alle Zusammenhänge: neben einer Überschrift
+   („Vorgabe je Zeile") wie neben einer Feldbeschriftung („€/h", „drei Zeilen,
+   oben rechts"). Es ist dieselbe Sache und sieht deshalb gleich aus.
+
+   Vorher war sie neben der Überschrift 11px und neben der Beschriftung 13px —
+   nicht aus Absicht, sondern weil die 11px seinerzeit allein gegen den
+   Umbruch in der Überschrift gesetzt wurden und die Beschriftung dabei
+   niemand ansah. */
+.meta { font-weight:400; color:var(--muted); font-size:11px; line-height:1.3 }
+
 label.t { display:block; font-weight:600; margin-bottom:3px }
-label.t .meta { font-weight:400; color:var(--muted); margin-left:6px }
+/* Die Überschrift ist ein Flexkasten und setzt den Abstand über `gap`; eine
+   Beschriftung ist es nicht, dort braucht die Nebenangabe ihn selbst. */
+label.t .meta { margin-left:6px }
 input[type=text],input[type=date],input[type=number],select,textarea {
   width:100%; padding:6px 8px; border:1px solid var(--field-line); border-radius:var(--r-sm);
   background:var(--sunk); font:inherit; color:inherit;

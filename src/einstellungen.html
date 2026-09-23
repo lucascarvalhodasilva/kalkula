@@ -20,16 +20,19 @@
      dafür braucht es das Hauptfenster nicht. Nur die Preisliste geht dorthin
      zurück: eine Tabelle wird an genau einer Stelle gelesen. */
   body { display:flex; flex-direction:column; padding:14px; gap:14px; overflow:hidden }
-  main { flex:1; overflow:auto; display:flex; flex-direction:column; gap:16px; padding-right:2px }
+  /* `padding-inline` mit ausgleichendem negativem Rand: der Fokusring liegt
+     4px außerhalb des Feldes (`outline-offset:2px` plus 2px Strichstärke in
+     app.css), und ein Feld, das die volle Breite einnimmt, verliert ihn an
+     der Kante dieses Kastens — `overflow:auto` schneidet ihn ab. Es sah aus,
+     als seien die Felder links und rechts angeschnitten.
+
+     Der negative Rand gibt den Platz zurück, den die Polsterung nimmt: der
+     Kasten wird 8px breiter, sein Inhalt steht aber Pixel für Pixel dort, wo
+     er vorher stand. */
+  main { flex:1; overflow:auto; display:flex; flex-direction:column; gap:16px;
+         padding-inline:4px; margin-inline:-4px }
 
   section { display:flex; flex-direction:column }
-  /* Die Trennlinie einer Überschrift hat oben wie unten 9 px Luft: `margin:0`
-     und jedes erste Element danach rückt selbst um 9 px ab. Vorher standen
-     unter den drei Linien 13, 4 und 4 px — je nachdem, ob ein Feld, die
-     Logo-Zeile oder die Kachel folgte. Drei Abschnitte, drei Abstände. */
-  h2 { font-size:12px; font-weight:600; margin:0; display:flex; align-items:center; gap:6px;
-       min-height:calc(26px + 9px + 1px); padding-bottom:9px; border-bottom:1px solid var(--line) }
-  h2 .meta { font-weight:400; color:var(--muted); font-size:11px; line-height:1.3 }
 
   /* Das Logo auf kariertem Grund: ein durchsichtiges PNG verschwände sonst auf
      dunklem Grund, und man könnte nicht unterscheiden, ob es fehlt oder nur
@@ -57,9 +60,19 @@
 <body>
 
 <main>
+  <!-- „Firmenangaben" wie im Hinweis des Zahnrads in der Seitenleiste
+       („Einstellungen: Firmenangaben, Logo, Preisliste") — dieselben drei
+       Gruppen, dieselben Wörter.
+
+       Vorher trug dieser Abschnitt „Kopfzeile" als Überschrift, und die
+       Fußzeile darunter nur eine Feldbeschriftung. Zwei gleichrangige
+       Angaben, zwei verschiedene Kleider: die eine mit Trennlinie über die
+       ganze Breite, die andere ohne. Dazu hatte das Textfeld gar keine
+       Beschriftung, denn eine Überschrift ist keine. -->
   <section>
-    <h2>Kopfzeile <span class="meta">drei Zeilen, oben rechts auf dem Angebot</span></h2>
+    <h2>Firmenangaben <span class="meta">Kopf und Fuß jedes Angebots</span></h2>
     <div class="field">
+      <label class="t" for="kopf">Kopfzeile <span class="meta">drei Zeilen, oben rechts</span></label>
       <textarea id="kopf" rows="3"
         placeholder="Firma&#10;Straße, Ort&#10;E-Mail  |  Web"></textarea>
     </div>

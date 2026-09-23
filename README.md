@@ -524,7 +524,7 @@ samt Datum vom System.
 
 ### Einstellungen des Programms
 
-Fünf Dinge gehören dem Programm und nicht der einzelnen Kalkulation:
+Vier Dinge gehören dem Programm und nicht der einzelnen Kalkulation:
 **Kopfzeile**, **Fußzeile**, **Logo** und **welche Preisliste gilt**. Sie sind
 bei jedem Angebot dieselben und stehen deshalb im Einstellungsfenster
 (Zahnrad in der Fußleiste der Seitenleiste) — nicht in der `.kalk`-Datei.

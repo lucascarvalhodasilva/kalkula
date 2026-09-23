@@ -18,7 +18,17 @@
   header { flex:none }
   header h1 { font-size:14px; margin:0 0 3px }
   header .datei { color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
-  #liste { flex:1; overflow:auto; display:flex; flex-direction:column; gap:8px; padding-right:2px }
+  /* `padding-inline` mit ausgleichendem negativem Rand: der Fokusring liegt
+     4px außerhalb des Feldes (`outline-offset:2px` plus 2px Strichstärke in
+     app.css), und ein Feld, das die volle Breite einnimmt, verliert ihn an
+     der Kante dieses Kastens — `overflow:auto` schneidet ihn ab. Es sah aus,
+     als seien die Felder links und rechts angeschnitten.
+
+     Der negative Rand gibt den Platz zurück, den die Polsterung nimmt: der
+     Kasten wird 8px breiter, sein Inhalt steht aber Pixel für Pixel dort, wo
+     er vorher stand. */
+  #liste { flex:1; overflow:auto; display:flex; flex-direction:column; gap:8px;
+           padding-inline:4px; margin-inline:-4px }
 
   .kat { background:var(--surface); border:1px solid var(--line); border-radius:var(--r) }
   .kat > .kopf { display:flex; align-items:center; gap:8px; padding:9px 12px; cursor:pointer;
