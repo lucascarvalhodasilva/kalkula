@@ -150,16 +150,21 @@
      die Tabelle bei jedem Tastendruck in einer Mengenspalte neu umbräche. */
   .tabelle { background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
              overflow:auto; position:relative }
-  table { width:100%; border-collapse:collapse; table-layout:fixed; min-width:900px }
+  /* Auf `.tabelle` eingegrenzt und nicht als nacktes `table`: seit das
+     Datumsfeld einen eigenen Kalender aufklappt, gibt es in dieser Seite zwei
+     Tabellen. Die 900px sind die Mindestbreite der Postentabelle, damit sie im
+     schmalen Fenster waagerecht scrollt statt die Spalten zu quetschen — ein
+     Kalenderblatt von 252px Breite riss es damit dreieinhalbfach auf. */
+  .tabelle table { width:100%; border-collapse:collapse; table-layout:fixed; min-width:900px }
   /* Der Tabellenkopf bleibt beim Scrollen stehen — bei 200 Posten weiß man
      sonst in der Mitte nicht mehr, welche Spalte welche ist. */
-  thead th { position:sticky; top:0; z-index:2; background:var(--raised);
+  .tabelle thead th { position:sticky; top:0; z-index:2; background:var(--raised);
              font-size:11px; font-weight:600; color:var(--muted); text-align:right;
              padding:7px 6px; border-bottom:1px solid var(--line); white-space:nowrap }
-  thead th.l { text-align:left }
-  thead th .e { display:block; font-weight:400; opacity:.7 }
-  tbody td { padding:2px 6px; border-bottom:1px solid var(--line); vertical-align:middle }
-  tbody tr:last-child td { border-bottom:0 }
+  .tabelle thead th.l { text-align:left }
+  .tabelle thead th .e { display:block; font-weight:400; opacity:.7 }
+  .tabelle tbody td { padding:2px 6px; border-bottom:1px solid var(--line); vertical-align:middle }
+  .tabelle tbody tr:last-child td { border-bottom:0 }
 
   /* Die Eingaben in der Tabelle tragen keinen eigenen Rahmen: 15 umrandete
      Kästchen je Zeile ergäben ein Gitter im Gitter. Der Rahmen kommt, sobald
@@ -268,12 +273,15 @@
       <div class="field"><label class="t" for="angebotsNr">Angebots-Nr.</label>
         <input type="text" id="angebotsNr" data-kopf="angebotsNr"></div>
       <div class="field"><label class="t" for="datum">Datum</label>
-        <!-- Der Knopf öffnet den Systemkalender. Ohne ihn wäre der gar nicht
-             zu erreichen: in WKWebView zeigt ein Datumsfeld nur die Zahl und
-             bringt keine eigene Handhabe mit. -->
+        <!-- Ein Textfeld und kein `type=date`: der Kalender des Systems ließ
+             sich weder gestalten noch zuklappen. Warum, steht im Kopf von
+             kalender.js. Kein `data-kopf`, weil hier ISO und Satzform
+             auseinandergehen — das erledigt der Kalender. -->
         <div class="datumfeld">
-          <input type="date" id="datum" data-kopf="datum">
-          <button type="button" class="kalender" id="datumWahl" aria-label="Kalender öffnen">
+          <input type="text" id="datum" inputmode="numeric" maxlength="10"
+                 autocomplete="off" spellcheck="false" placeholder="TT.MM.JJJJ">
+          <button type="button" class="kalender" id="datumWahl" aria-label="Kalender öffnen"
+                  aria-haspopup="dialog" aria-expanded="false" aria-controls="kalenderblatt">
             <svg viewBox="0 0 14 14" aria-hidden="true">
               <rect x="1.6" y="2.6" width="10.8" height="9.8" rx="1.6"/>
               <path d="M1.6 5.6h10.8M4.6 1.2v2.6M9.4 1.2v2.6"/>
@@ -343,6 +351,25 @@
 
 <div class="menu" id="menu" role="menu" hidden></div>
 
+<!-- Am <body> und nicht in der Leiste: `aside` scrollt und schnitte das Blatt
+     an seiner Kante ab — dieselbe Überlegung wie beim Menü darüber. Der Rahmen
+     steht hier und wird nicht erzeugt, weil `aria-labelledby` feste Kennungen
+     braucht und weil man die Gliederung in der Auszeichnung lesen können soll.
+     Gefüllt wird nur der <tbody>. -->
+<div class="kalenderblatt" id="kalenderblatt" role="dialog"
+     aria-labelledby="kalenderTitel" hidden>
+  <div class="kopf">
+    <button type="button" class="blaettern" data-zu="-1" aria-label="Voriger Monat">‹</button>
+    <span class="titel" id="kalenderTitel" aria-live="polite"></span>
+    <button type="button" class="blaettern" data-zu="1" aria-label="Nächster Monat">›</button>
+  </div>
+  <table role="grid" aria-labelledby="kalenderTitel">
+    <thead><tr></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="fuss"><button type="button" class="link" data-heute>Heute</button></div>
+</div>
+
 <dialog id="frage">
   <h3 id="frageTitel"></h3>
   <div class="body" id="frageText"></div>
@@ -360,7 +387,8 @@
 // CSP in tauri.conf.json (`script-src 'self'`, kein `unsafe-inline`); die
 // Capabilities begrenzen daneben, was überhaupt zu erreichen wäre.
 import { invoke, listen } from "./vendor/tauri-api.js";
-import { defineMenu, openMenu } from "./menu-ui.js";
+import { defineMenu, closeMenu, openMenu as menuAufklappen } from "./menu-ui.js";
+import { kalenderVerdrahten } from "./kalender.js";
 import { katalogLesen, kategorieNeuBauen, nachschlagen } from "./katalog.js";
 import * as R from "./rechnen.js";
 
@@ -1084,61 +1112,36 @@ async function einstellung(schluessel, vorgabe) {
   return vorgabe;
 }
 
-// ---- Datum: Beschriftung, Kalenderknopf ----
-// Ein Klick auf die Beschriftung soll das Feld anwählen und sonst nichts.
-// Ohne `preventDefault` leitet der Browser ihn als Klick ans Feld weiter, und
-// dort klappt er den Kalender auf — gewollt war aber nur hinzeigen. Das `for`
-// bleibt trotzdem stehen: es gibt dem Feld seinen Namen für die Vorlesehilfe.
-$('label[for="datum"]').addEventListener("click", e => {
-  e.preventDefault();
-  $("#datum").focus();
+// ---- Datum ----
+// Das Feld steht in der Satzform TT.MM.JJJJ, die Kalkulation in ISO. Beides
+// auseinanderzuhalten ist die ganze Aufgabe von `kalender.js`; hier hängt nur
+// das Modell daran. `setzen` ist der einzige Weg zum Feldwert — `#datum.value`
+// wird in dieser Datei nirgends mehr angefasst.
+const kal = kalenderVerdrahten({
+  blatt: $("#kalenderblatt"), feld: $("#datum"), knopf: $("#datumWahl"),
+  waehlen: iso => { kalk.kopf.datum = iso; aendern(); },
+  melden: melde,
+  // Die beiden Aufklappflächen dieses Fensters wissen nichts voneinander. Sie
+  // müssen es auch nicht — sie müssen nur beide zu sein, wenn eine aufgeht.
+  vorAuf: () => closeMenu(false),
 });
 
-// Das Symbol klappt den Kalender des Systems auf und wieder zu.
-//
-// WARUM DER FOKUS DAS GANZE SCHARNIER IST
-//   Zuklappen lässt sich der Kalender nur auf einem Weg: indem das Feld den
-//   Fokus verliert. `showPicker()` hat kein Gegenstück, und alles, was man
-//   dem Feld sonst antun kann, lässt ihn offen — `disabled` kurz an und aus,
-//   `display:none`, `type` auf "text" und zurück. Alles am laufenden Fenster
-//   durchprobiert, alles wirkungslos.
-//
-//   `blur()` dagegen wirkt — aber nur, wenn das Feld den Fokus überhaupt
-//   hatte. Und den bekam es beim Aufklappen über diesen Knopf nie:
-//   `showPicker()` öffnet den Kalender, ohne das Feld anzuwählen. Ein Klick
-//   in die Ziffern tat beides, deshalb ging es dort zu und hier nicht.
-//
-//   Darum das `focus()` vor dem `showPicker()`. Es sieht nach einer Zeile
-//   Höflichkeit aus und ist in Wahrheit die Bedingung dafür, dass sich der
-//   Kalender je wieder schließen lässt.
-//
-// Das `mousedown` daneben hält den Fokus im Feld, statt ihn beim Klick auf
-// den Knopf wandern zu lassen — sonst entschiede die Reihenfolge zweier
-// Ereignisse darüber, ob der nächste Druck auf- oder zuklappt.
-let kalenderOffen = false;
+// Die Gegenrichtung: menu-ui.js bleibt unverändert (es stammt unverändert aus
+// docfill), das Zuklappen hängt sich hier davor. Alle Aufrufstellen von
+// `openMenu` bleiben dadurch, wie sie sind.
+const openMenu = (...a) => { kal.zuklappen(false); menuAufklappen(...a); };
 
-$("#datumWahl").addEventListener("mousedown", e => e.preventDefault());
-
-$("#datumWahl").addEventListener("click", () => {
-  const d = $("#datum");
-  if (kalenderOffen) { kalenderOffen = false; d.blur(); return; }
-  d.focus();
-  // Verweigert `showPicker()` einmal, bleibt das Feld bedienbar: das Datum
-  // lässt sich tippen, und der Knopf darf nie im Weg stehen.
-  try { d.showPicker(); kalenderOffen = true; } catch { /* getippt geht auch */ }
-});
-
-// Solange der Kalender offen steht, hat das Feld den Fokus. Verliert es ihn,
-// ist der Kalender zu — gleich ob durch einen Klick daneben, die Wahl eines
-// Tages oder unser eigenes `blur()`. Damit ist das eine verlässliche
-// Auskunft und kein Mitzählen von Vermutungen.
-$("#datum").addEventListener("blur", () => { kalenderOffen = false; });
-// Escape nimmt den Kalender weg, ohne den Fokus mitzunehmen — der Merker
-// muss trotzdem fallen, sonst klappt der nächste Druck nichts auf.
-addEventListener("keydown", e => { if (e.key === "Escape") kalenderOffen = false; });
+// Eingeklappt ist das Datumsfeld nicht mehr da; ein Blatt, das über der leeren
+// Schiene stehen bliebe, gehörte zu nichts. Als eigene Horcher und nicht in
+// `leisteSetzen`: das läuft schon beim Start, bevor es `kal` gibt.
+leisteSchalter.addEventListener("click", () => kal.zuklappen(false));
+SCHMAL.addEventListener("change", () => kal.zuklappen(false));
 
 function kopfZeichnen() {
   for (const inp of document.querySelectorAll("[data-kopf]")) inp.value = kalk.kopf[inp.dataset.kopf] ?? "";
+  // Das Datum geht nicht über `data-kopf`: in der Datei steht JJJJ-MM-TT, im
+  // Feld TT.MM.JJJJ.
+  kal.setzen(kalk.kopf.datum ?? "");
   $("#lohnsatz").value = kalk.lohnsatz ?? "";
   $("#zuschlag").value = Math.round((kalk.zuschlag || 0) * 1000) / 10;
   schieneZeichnen();
@@ -1731,6 +1734,7 @@ function druckAbschrift(stufe) {
     melde(`Die zuletzt benutzte Preisliste ließ sich nicht laden: ${e?.message ?? e}`);
   }
 })();
+
 </script>
 </body>
 </html>

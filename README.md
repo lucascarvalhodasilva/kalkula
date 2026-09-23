@@ -77,6 +77,9 @@ kann dann nur Freitextzeilen anlegen.
 - `src/app.css` — Farben, Formularfelder, Schaltflächen, Statuszeile, Menü und
   Dialog, von allen drei Seiten benutzt. Muss in jeder Seite **vor** dem eigenen
   `<style>` eingebunden werden.
+- `src/kalender.js` — das Datumsfeld: Deutung des Getippten und ein eigener
+  Kalender. Eigenes Modul, damit der Parser ohne Fenster prüfbar bleibt —
+  `node -e 'import("./src/kalender.js").then(m => …)'`.
 - `src/vendor/jszip.min.js` — mitgeliefert, damit das Programm offline
   funktioniert. Prüfsumme in `src/vendor/SHA256SUMS`, geprüft bei jedem Bauen.
 - `src-tauri/src/lib.rs` — 30 Befehle. Dateien: `pick_catalog`,
@@ -196,6 +199,35 @@ betrifft.
 
 Weil die Schaltfläche „Speichern" eingeklappt nicht erreichbar ist, tut
 **⌘S / Strg-S** dasselbe wie sie.
+
+### Das Datumsfeld
+
+Ein **Textfeld mit eigenem Kalender**, kein `input[type=date]`. Am Systemfeld
+ließ sich zweierlei nicht ändern, beides am laufenden Fenster nachgemessen: der
+aufklappende Kalender blieb in den Farben des Systems
+(`::-webkit-calendar-picker-indicator` und `…-day-field:focus` greifen in
+WKWebView nicht), und zuklappen ließ er sich nur, indem man dem Feld den Fokus
+entzog — `showPicker()` hat kein Gegenstück, und `disabled`, `display:none`
+oder ein `type`-Tausch ließen ihn offen.
+
+Getipptes wird **geduldig gedeutet und erst beim Verlassen zurechtgerückt**:
+`1.9.26`, `1.9.2026`, `01092026` und `1.9.` ergeben alle den 1. September;
+jedes Nichtziffernzeichen trennt, ein zweistelliges Jahr ist immer `20JJ`.
+
+Wer nur Ziffern tippt, bekommt **die Punkte gesetzt**: aus `01092026` wird
+unterwegs `01.09.2026`. Nur dort, wo es eindeutig ist — hinter genau zwei
+Ziffern und hinter `TT.MM` —, und nur, solange niemand selbst getrennt hat:
+ein Punkt, der sich in `1.9.26` dazwischendrängte, machte daraus `19.26`. Eine
+einzelne Ziffer bleibt deshalb unberührt, und beim Löschen wird nichts
+nachgesetzt. Was
+kein Datum ergibt, lässt das Feld auf den letzten gültigen Wert zurückspringen
+— in die Datei kommt nie etwas Unbrauchbares. Gespeichert wird weiterhin
+`JJJJ-MM-TT`; die Satzform `TT.MM.JJJJ` steht nur im Feld.
+
+**Ersatzlos weggefallen** ist das Hochzählen einer Zifferngruppe mit ↑/↓ im
+Feld, das das Systemfeld mitbrachte. Wer das benutzt hat, tippt künftig oder
+nimmt den Kalender — dort blättern die Pfeiltasten tageweise, ↑/↓ wochenweise
+und Bild ↑/↓ monatsweise.
 
 **Eine neue Zeile zeigt nur, was als Nächstes dran ist.** Vorher standen
 fünfzehn Felder da, von denen vierzehn erst dann etwas bedeuten, wenn Kategorie

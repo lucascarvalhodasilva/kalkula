@@ -50,74 +50,32 @@ input[type=text],input[type=date],input[type=number],select,textarea {
   width:100%; padding:6px 8px; border:1px solid var(--field-line); border-radius:var(--r-sm);
   background:var(--sunk); font:inherit; color:inherit;
   transition:border-color var(--dur) var(--ease), background var(--dur) var(--ease) }
-/* Ein Datumsfeld ist von sich aus höher als ein Textfeld. WebKit baut darin
-   ein eigenes Kästchen — Zifferngruppen, Trennpunkte, Kalendersymbol — und
-   nimmt dessen Höhe statt der einer Textzeile. In WKWebView gemessen: 36px
-   gegen 32,84px, bei identischer Polsterung. Die Differenz steckt ganz im
-   Inhaltskasten, 22px gegen 18,84px, und wächst mit dem Zeilenabstand
-   einfach mit — über `line-height` ist sie deshalb nicht einzuholen.
+/* Hier stand einmal ein gemeinsames Maß von 34px. Es glich aus, dass ein
+   `input[type=date]` seinen Umriss nicht aus einer Textzeile nimmt, sondern
+   aus dem Kästchen, das WebKit hineinbaut — 36px gegen 32,84px, nachgemessen.
 
-   Also ein gemeinsames Maß. 34px ist das kleinste, bei dem das Datumsfeld
-   nicht beschnitten wird, und auch das nur mit der Zeile darunter: ohne sie
-   oder bei 33px meldet es `scrollHeight > clientHeight`, und dann fehlt dem
-   Kalendersymbol unten ein Streifen.
+   Seit das Datumsfeld ein Textfeld ist (siehe kalender.js), gibt es diesen
+   Unterschied nicht mehr: alle Felder der Leiste sind von sich aus gleich
+   hoch. Ein festes Maß hätte jetzt keinen Grund mehr, den man aufschreiben
+   könnte, und ein Maß ohne Grund ist eine Zahl, die irgendwann niemand mehr
+   anzufassen wagt. */
 
-   Nur `.field >`: in der Tabelle sitzen die Felder enger (`td input`), dort
-   wäre ein festes Maß von 34px zu hoch. */
-.field > input[type=text],
-.field input[type=date],
-.field > input[type=number] { height:34px }
-.field input[type=date]::-webkit-datetime-edit { padding:0 }
-
-/* ---- Was sich an einem Datumsfeld gestalten lässt ----
-   WebKit baut darin einen eigenen kleinen Baum: je ein Kästchen für Tag,
-   Monat und Jahr, die Trennpunkte dazwischen, rechts das Kalendersymbol.
-   Erreichbar ist davon in WKWebView nur ein Teil — nachgemessen, indem den
-   Selektoren eine Polsterung gegeben und die Breite des Feldes verglichen
-   wurde:
-
-     ::-webkit-datetime-edit                  greift
-     ::-webkit-datetime-edit-fields-wrapper   greift
-     ::-webkit-datetime-edit-text             greift
-     ::-webkit-datetime-edit-day/month/year-field   greift
-     ::-webkit-calendar-picker-indicator      wirkungslos
-     ::-webkit-datetime-edit-day-field:focus  wirkungslos
-
-   Das Kalendersymbol und die Hervorhebung der ausgewählten Zifferngruppe
-   bleiben deshalb, wie das System sie zeichnet. Wer sie anfassen will,
-   braucht einen selbstgebauten Kalender — und der müsste Wochenanfang,
-   Sprache und Tastaturbedienung neu richtig machen, die das Systemfeld
-   mitbringt. */
-
-/* Die Zifferngruppen tragen die Angabe, die Trennpunkte gliedern sie nur.
-   Also stehen die Punkte zurück, wie jede Nebenangabe im Programm. */
-.field input[type=date]::-webkit-datetime-edit-text { color:var(--muted) }
-
-/* Gleich breite Ziffern, wie in jedem Zahlenfeld des Programms.
-
-   Nicht gegen ein Springen beim Blättern: WebKit legt die Zifferngruppen
-   ohnehin auf feste Breiten fest, gemessen sind 11.11.2026 und 28.08.2028
-   beide 99,89 px breit. Der Grund ist allein der der anderen Zahlenfelder —
-   ein Datum ist eine Zahlenangabe und soll dieselben Ziffern zeigen wie die
-   Beträge daneben. */
-.field input[type=date] { font-variant-numeric:tabular-nums }
+/* Gleich breite Ziffern, wie in jedem Zahlenfeld des Programms: ein Datum ist
+   eine Zahlenangabe und soll dieselben Ziffern zeigen wie die Beträge daneben. */
+.field .datumfeld > input[type=text] { font-variant-numeric:tabular-nums }
 
 /* ---- Der Kalenderknopf ----
-   Dasselbe Verfahren wie bei den Auswahllisten oben, und aus demselben
-   Grund: das Systemfeld bringt hier gar keine Handhabe mit — in WKWebView
-   steht im Datumsfeld nur die Zahl, kein Symbol —, und der Systemkalender
-   ist sonst nicht zu erreichen. Also bekommt das Feld dieselbe abgesetzte
-   Fläche am rechten Rand wie eine Auswahlliste, damit beide dasselbe sagen:
-   „hier lässt sich etwas aufklappen".
+   Dasselbe Verfahren wie bei den Auswahllisten oben und dieselbe Fläche am
+   rechten Rand, damit beide dasselbe sagen: „hier lässt sich etwas
+   aufklappen".
 
    Eine eigene Klasse und nicht `.wrap`: dort hängt das Pfeilzeichen ▾ am
    `::after`, und das gehört einer Liste, nicht einem Datum.
 
-   Ein wirklicher Knopf und kein Pseudo-Element, weil dieser hier etwas tut.
-   `showPicker()` öffnet den Kalender des Systems; ein `::after` könnte
-   keinen Klick annehmen. */
+   Ein wirklicher Knopf und kein Pseudo-Element, weil dieser hier etwas tut —
+   ein `::after` könnte keinen Klick annehmen. */
 .datumfeld { position:relative; display:block }
-.datumfeld > input[type=date] { padding-right:26px }
+.datumfeld > input[type=text] { padding-right:26px }
 .datumfeld > .kalender {
   position:absolute; right:1px; top:1px; bottom:1px; width:20px;
   display:grid; place-items:center; padding:0;
@@ -205,6 +163,56 @@ button.link:disabled { opacity:.4; cursor:default }
 .menu button.danger:hover:not(:disabled), .menu button.danger:focus-visible { background:rgba(239,125,115,.12) }
 .menu button:disabled { opacity:.4; cursor:default; background:none }
 .menu hr { border:0; border-top:1px solid var(--line); margin:4px 2px }
+
+/* ---- Kalenderblatt ----
+   Das Gegenstück zum Aufklappmenü darüber und mit denselben Mitteln: hängt am
+   <body>, weil `aside` scrollt und es sonst an der Leistenkante abschnitte;
+   `position:fixed`; die Stellung setzt kalender.js per CSSOM, weil ein
+   style-Attribut die CSP verwirft.
+
+   Fläche, Rahmen und Schatten sind absichtlich dieselben Werte wie oben und
+   nicht eigene: zwei Aufklappflächen desselben Fensters sollen nicht um einen
+   Grauton oder einen Pixel auseinanderlaufen. */
+.kalenderblatt { position:fixed; z-index:10; width:252px; padding:8px;
+                 background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+                 box-shadow:0 10px 28px rgba(0,0,0,.5) }
+.kalenderblatt[hidden] { display:none }
+
+.kalenderblatt .kopf { display:flex; align-items:center; gap:4px; padding-bottom:6px }
+.kalenderblatt .titel { flex:1; text-align:center; font-weight:600;
+                        font-variant-numeric:tabular-nums }
+/* Dasselbe Quadrat wie der Einklapp-Schalter der Leiste; ‹ und › sind
+   dieselben Zeichen, die dort und an den Auswahllisten schon stehen. */
+.kalenderblatt .blaettern { width:26px; height:26px; padding:0; display:grid; place-items:center;
+                            background:none; border:0; border-radius:var(--r-sm);
+                            color:var(--muted); font:inherit; cursor:pointer;
+                            transition:background var(--dur) var(--ease), color var(--dur) var(--ease) }
+.kalenderblatt .blaettern:hover { background:var(--raised); color:var(--ink) }
+
+/* `min-width:0` ausdrücklich: eine Seite darf ihren eigenen Tabellen eine
+   Mindestbreite geben — index.html tut das, damit die Postentabelle im
+   schmalen Fenster scrollt —, und eine Mindestbreite schlägt jede Breite.
+   Dieses Blatt gehört einem Modul und soll nicht davon abhängen, dass die
+   Seite, in der es aufklappt, aufgeräumt ist. */
+.kalenderblatt table { width:100%; min-width:0; table-layout:fixed; border-collapse:collapse }
+.kalenderblatt th { font-size:11px; font-weight:400; color:var(--muted); padding-bottom:4px }
+.kalenderblatt td { padding:0 }
+.kalenderblatt td > button { width:100%; height:30px; padding:0; background:none; border:0;
+                             border-radius:var(--r-sm); color:var(--ink); font:inherit;
+                             font-variant-numeric:tabular-nums; cursor:pointer }
+.kalenderblatt td > button:hover { background:var(--raised) }
+/* Die Tage der Nachbarmonate stehen mit da, nur zurückgenommen: eine leere
+   Zelle sähe aus wie ein Loch, und bei Montagsanfang beginnt jeder dritte
+   Monat mit sechs leeren Feldern. */
+.kalenderblatt td > button.fremd { color:var(--muted) }
+/* Heute ist umrandet, der gewählte Tag gefüllt — zwei Angaben, zwei Mittel.
+   Fällt beides zusammen, bleibt der Ring auf der Füllung sichtbar. */
+.kalenderblatt td > button[aria-current=date] { box-shadow:inset 0 0 0 1px var(--field-line) }
+.kalenderblatt td[aria-selected=true] > button { background:var(--accent-solid); color:#fff;
+                                                  font-weight:600 }
+
+.kalenderblatt .fuss { display:flex; justify-content:center;
+                       padding-top:6px; margin-top:6px; border-top:1px solid var(--line) }
 
 /* ---- Dialog ----
    Ein <dialog> statt confirm(): der Browserdialog blockiert den Webview und

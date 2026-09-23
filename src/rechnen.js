@@ -32,6 +32,20 @@ export function neueId() {
   return `p${Date.now().toString(36)}${(zaehler++).toString(36)}`;
 }
 
+/**
+ * Heute als JJJJ-MM-TT, nach Ortszeit.
+ *
+ * Nicht `new Date().toISOString().slice(0, 10)`: das rechnet nach UTC. In
+ * deutscher Sommerzeit liefert es vor 02:00 Ortszeit den Vortag — eine
+ * Kalkulation, die um halb eins angelegt wird, trüge das Datum von gestern.
+ * Auffallen würde das kaum und nachweisen ließe es sich schlecht, weil es
+ * tagsüber stimmt.
+ */
+export function heuteIso() {
+  const d = new Date(), z = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+}
+
 /** Eine leere Kalkulation. */
 export function neueKalkulation() {
   return {
@@ -40,7 +54,7 @@ export function neueKalkulation() {
       kunde: "",
       projekt: "",
       angebotsNr: "",
-      datum: new Date().toISOString().slice(0, 10),
+      datum: heuteIso(),
       bearbeiter: "",
     },
     lohnsatz: VORGABE.lohnsatz,

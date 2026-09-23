@@ -455,6 +455,17 @@ const SPALTEN_VOLL = [
 // BAUSTEINE
 // ===========================================================================
 
+/**
+ * Heute als TT.MM.JJJJ, nach Ortszeit.
+ *
+ * Nicht über `toISOString()`: das rechnet nach UTC und schriebe nachts in
+ * deutscher Sommerzeit den Vortag unter das Blatt. Dasselbe steht als
+ * `heuteIso()` in rechnen.js; hier eine eigene Zeile, weil dieses Fenster
+ * sonst nichts aus dem Rechenmodell braucht und eine Abhängigkeit für drei
+ * Zeilen zu teuer wäre.
+ */
+const HEUTE = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
+
 /** JJJJ-MM-TT → TT.MM.JJJJ. */
 function datum(iso) {
   const [y, m, t] = String(iso).split("-");
@@ -684,7 +695,7 @@ function fussBauen(d, nr, von) {
   // Die Seitenzahl steht wie in der Vorlage links vom Erstelldatum. Sie ist
   // jetzt zu haben, weil der Umbruch hier gerechnet wird.
   rechts.textContent = `Seite ${nr} von ${von}      Erstellt am `
-    + datum(new Date().toISOString().slice(0, 10));
+    + HEUTE.format(new Date());
   f.append(links, luecke, rechts);
   return f;
 }
